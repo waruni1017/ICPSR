@@ -1,0 +1,501 @@
+abortion,state,eth,male,age,educ
+1,WI,White,-0.5,60-69,4-Year College
+1,NJ,White,-0.5,60-69,HS
+0,FL,White,-0.5,40-49,HS
+1,FL,White,0.5,70+,Some college
+0,IL,White,-0.5,50-59,Some college
+0,OK,Other,-0.5,18-29,Some college
+0,FL,White,-0.5,60-69,Some college
+0,TX,White,0.5,50-59,Post-grad
+0,FL,White,-0.5,70+,4-Year College
+1,TX,Hispanic,0.5,18-29,4-Year College
+1,TX,Other,0.5,60-69,Post-grad
+0,NY,White,-0.5,30-39,HS
+1,TX,White,-0.5,70+,4-Year College
+0,WI,White,-0.5,30-39,Some college
+1,FL,White,-0.5,30-39,4-Year College
+0,CA,White,0.5,40-49,Some college
+0,CO,White,-0.5,70+,4-Year College
+1,AZ,White,-0.5,30-39,HS
+1,KY,White,0.5,60-69,HS
+1,CA,Hispanic,0.5,50-59,Some college
+0,MA,White,-0.5,18-29,HS
+1,UT,White,0.5,18-29,4-Year College
+0,NY,White,-0.5,18-29,HS
+0,FL,White,-0.5,60-69,Post-grad
+0,NY,White,0.5,50-59,Some college
+1,MI,White,-0.5,30-39,4-Year College
+0,WA,White,0.5,60-69,4-Year College
+0,TN,Black,-0.5,30-39,4-Year College
+1,PA,White,-0.5,40-49,HS
+1,WV,White,-0.5,60-69,HS
+1,OK,White,0.5,70+,Post-grad
+1,IL,White,-0.5,18-29,Post-grad
+0,FL,White,-0.5,70+,Some college
+0,IL,White,-0.5,30-39,Post-grad
+0,CA,White,-0.5,70+,4-Year College
+1,MT,White,0.5,50-59,HS
+1,TN,White,-0.5,40-49,Some college
+0,CA,White,0.5,60-69,4-Year College
+0,AR,Black,0.5,18-29,HS
+1,WA,Hispanic,-0.5,30-39,HS
+1,TX,White,-0.5,70+,No HS
+0,NC,Black,-0.5,40-49,4-Year College
+0,FL,Black,-0.5,60-69,Some college
+0,DE,White,0.5,70+,4-Year College
+0,PA,White,-0.5,70+,HS
+0,MA,White,0.5,60-69,Some college
+1,WA,White,-0.5,70+,HS
+0,NJ,Black,0.5,30-39,4-Year College
+0,CA,White,-0.5,70+,Post-grad
+0,FL,White,0.5,18-29,Some college
+1,PA,White,0.5,18-29,Some college
+1,CA,White,0.5,50-59,4-Year College
+1,PA,White,-0.5,18-29,4-Year College
+0,KY,White,-0.5,60-69,HS
+0,AL,White,0.5,50-59,Some college
+1,FL,Hispanic,0.5,50-59,4-Year College
+0,NC,Black,0.5,18-29,Some college
+0,MO,White,0.5,50-59,4-Year College
+1,FL,White,-0.5,70+,4-Year College
+0,MI,White,0.5,70+,Post-grad
+0,CA,White,-0.5,50-59,Some college
+0,OH,White,0.5,18-29,HS
+0,CO,White,0.5,50-59,4-Year College
+0,MN,White,0.5,40-49,4-Year College
+1,NY,White,-0.5,18-29,4-Year College
+1,NC,White,0.5,50-59,4-Year College
+0,CT,Other,-0.5,30-39,4-Year College
+0,MA,White,0.5,30-39,4-Year College
+1,OK,White,-0.5,50-59,Some college
+0,VA,White,0.5,40-49,Some college
+1,NY,White,0.5,50-59,HS
+0,NE,White,0.5,60-69,Post-grad
+1,TX,Hispanic,0.5,30-39,4-Year College
+1,AZ,White,0.5,70+,4-Year College
+0,NY,White,-0.5,70+,HS
+0,CA,Hispanic,-0.5,18-29,HS
+1,TX,Hispanic,0.5,50-59,Some college
+0,NM,White,0.5,30-39,HS
+0,CA,White,0.5,50-59,Some college
+0,GA,White,0.5,50-59,Post-grad
+1,NC,White,-0.5,50-59,4-Year College
+1,TX,White,-0.5,40-49,HS
+1,TX,White,0.5,50-59,Some college
+1,NE,White,-0.5,18-29,4-Year College
+0,PA,White,0.5,60-69,HS
+0,TX,Hispanic,-0.5,18-29,4-Year College
+0,AL,White,0.5,40-49,HS
+1,NC,White,-0.5,50-59,4-Year College
+1,OH,White,0.5,70+,HS
+1,CA,White,-0.5,18-29,Some college
+1,IL,Other,0.5,50-59,4-Year College
+0,OH,White,-0.5,30-39,Some college
+0,FL,Hispanic,0.5,40-49,Some college
+0,FL,Hispanic,-0.5,60-69,4-Year College
+1,OH,White,0.5,60-69,Some college
+0,NY,White,-0.5,40-49,Post-grad
+1,GA,Black,-0.5,30-39,Some college
+0,ND,White,0.5,60-69,Some college
+0,CA,Other,0.5,30-39,Some college
+1,PA,White,-0.5,30-39,Post-grad
+0,MI,White,-0.5,40-49,4-Year College
+0,FL,Black,0.5,18-29,Some college
+0,OR,White,-0.5,50-59,HS
+0,CA,Other,0.5,18-29,Some college
+1,NC,White,-0.5,50-59,HS
+0,NM,White,-0.5,60-69,Post-grad
+1,WI,White,0.5,70+,4-Year College
+1,SC,White,-0.5,70+,4-Year College
+0,VA,White,-0.5,30-39,HS
+0,MI,Other,0.5,40-49,Some college
+1,AZ,White,0.5,50-59,Some college
+0,FL,White,0.5,30-39,No HS
+0,OR,White,-0.5,40-49,Post-grad
+0,NJ,White,-0.5,18-29,Some college
+0,MI,White,-0.5,18-29,HS
+0,NY,White,-0.5,50-59,Some college
+1,CA,White,0.5,18-29,4-Year College
+0,MD,Black,-0.5,18-29,HS
+0,MI,Black,-0.5,18-29,Post-grad
+1,ME,White,-0.5,18-29,HS
+0,VA,White,-0.5,40-49,4-Year College
+0,MI,Hispanic,0.5,18-29,Some college
+0,OH,White,0.5,18-29,HS
+0,OH,White,-0.5,40-49,Some college
+1,AL,Black,-0.5,18-29,HS
+0,FL,Hispanic,-0.5,30-39,Post-grad
+0,WY,White,-0.5,40-49,Some college
+1,NY,Hispanic,-0.5,30-39,4-Year College
+0,WA,White,-0.5,18-29,4-Year College
+0,SD,White,0.5,18-29,Some college
+0,IL,White,-0.5,40-49,HS
+0,VA,Black,-0.5,30-39,4-Year College
+1,TX,Hispanic,0.5,18-29,Some college
+0,NJ,White,0.5,40-49,Post-grad
+1,IL,Black,-0.5,50-59,HS
+0,MI,White,-0.5,60-69,HS
+1,NV,White,-0.5,50-59,Some college
+1,NJ,White,-0.5,40-49,4-Year College
+0,CA,Hispanic,-0.5,18-29,Some college
+1,NJ,White,0.5,60-69,HS
+1,MO,Other,0.5,30-39,Some college
+0,LA,Black,0.5,18-29,HS
+0,GA,White,0.5,70+,4-Year College
+0,MI,White,0.5,30-39,Some college
+1,CA,White,-0.5,50-59,Post-grad
+1,IL,White,0.5,70+,HS
+0,IL,White,-0.5,60-69,HS
+1,TN,White,0.5,50-59,Some college
+0,CA,Hispanic,-0.5,50-59,HS
+0,SC,Black,0.5,50-59,Some college
+0,CA,Black,-0.5,60-69,HS
+1,OH,Black,-0.5,30-39,HS
+0,ID,Other,0.5,40-49,4-Year College
+1,TX,Other,-0.5,50-59,Post-grad
+1,IN,White,0.5,70+,Post-grad
+1,AZ,White,0.5,50-59,4-Year College
+0,GA,Other,-0.5,18-29,4-Year College
+1,CO,White,0.5,70+,Post-grad
+0,CO,Black,-0.5,60-69,Some college
+0,IN,White,0.5,50-59,Post-grad
+0,FL,White,-0.5,50-59,Post-grad
+1,NJ,White,-0.5,60-69,Some college
+0,AK,White,0.5,50-59,4-Year College
+0,FL,White,0.5,60-69,Some college
+0,CT,White,-0.5,60-69,HS
+1,AZ,White,-0.5,70+,Some college
+0,NJ,Black,-0.5,50-59,4-Year College
+1,TN,White,0.5,40-49,4-Year College
+1,ID,White,0.5,18-29,Some college
+0,CA,Hispanic,-0.5,18-29,Some college
+0,GA,White,0.5,40-49,4-Year College
+0,RI,White,-0.5,50-59,Post-grad
+0,TX,White,-0.5,18-29,4-Year College
+1,PA,White,0.5,60-69,HS
+0,OH,White,-0.5,40-49,4-Year College
+0,CA,White,0.5,18-29,4-Year College
+0,VA,White,-0.5,50-59,Post-grad
+0,FL,White,-0.5,60-69,4-Year College
+0,VA,White,0.5,70+,4-Year College
+0,CA,White,0.5,60-69,Post-grad
+1,SC,White,0.5,60-69,Some college
+1,NY,Hispanic,0.5,40-49,Some college
+0,NJ,White,0.5,30-39,4-Year College
+1,CA,White,-0.5,50-59,4-Year College
+0,TN,White,0.5,60-69,Some college
+0,NJ,White,0.5,70+,Post-grad
+1,NV,White,0.5,50-59,4-Year College
+0,MI,White,0.5,30-39,4-Year College
+0,NJ,Black,-0.5,50-59,Some college
+0,WI,White,0.5,50-59,Some college
+1,MA,White,0.5,70+,Post-grad
+1,AL,White,0.5,70+,Post-grad
+0,RI,White,0.5,30-39,Post-grad
+1,KY,White,-0.5,50-59,Some college
+1,NE,White,0.5,50-59,Post-grad
+0,NJ,White,-0.5,50-59,Post-grad
+1,PA,White,0.5,40-49,Some college
+1,FL,White,0.5,70+,Post-grad
+0,RI,White,-0.5,50-59,HS
+0,VA,White,-0.5,70+,Some college
+0,OR,White,-0.5,60-69,HS
+0,CO,White,-0.5,50-59,Some college
+1,CA,White,-0.5,70+,HS
+1,PA,White,0.5,60-69,HS
+0,TN,White,0.5,60-69,Some college
+1,CA,Other,-0.5,50-59,4-Year College
+0,OH,White,-0.5,60-69,Some college
+0,AZ,White,-0.5,40-49,4-Year College
+0,IN,White,0.5,60-69,Some college
+0,CA,White,-0.5,30-39,HS
+0,OK,White,0.5,40-49,HS
+1,TX,White,0.5,50-59,Some college
+0,NC,White,-0.5,70+,HS
+1,NY,White,-0.5,18-29,HS
+0,IL,Black,-0.5,50-59,Post-grad
+1,NJ,White,0.5,50-59,4-Year College
+0,OK,Black,0.5,40-49,4-Year College
+0,TX,White,0.5,60-69,Some college
+1,MI,White,-0.5,70+,HS
+1,FL,White,0.5,60-69,4-Year College
+1,OR,White,0.5,50-59,Some college
+1,PA,White,0.5,70+,HS
+1,VA,White,0.5,40-49,4-Year College
+1,CA,Other,-0.5,18-29,4-Year College
+0,TX,White,0.5,40-49,Some college
+0,PA,White,-0.5,30-39,Post-grad
+1,MO,White,-0.5,70+,Some college
+1,KS,White,0.5,50-59,Some college
+1,PA,Black,-0.5,30-39,4-Year College
+0,CA,Hispanic,-0.5,30-39,HS
+0,NY,White,-0.5,60-69,HS
+1,KY,White,-0.5,50-59,HS
+0,ID,White,-0.5,18-29,HS
+1,AZ,White,-0.5,60-69,4-Year College
+1,TX,White,-0.5,30-39,Some college
+1,CA,White,0.5,70+,Some college
+1,NY,White,0.5,30-39,Post-grad
+0,AR,White,0.5,18-29,4-Year College
+1,TN,White,0.5,30-39,No HS
+0,AL,White,0.5,70+,HS
+0,FL,White,0.5,18-29,Some college
+0,AL,Black,0.5,18-29,HS
+1,AL,White,0.5,30-39,4-Year College
+1,TN,White,-0.5,50-59,No HS
+0,IN,White,-0.5,50-59,HS
+0,NE,White,-0.5,70+,HS
+0,TX,Other,-0.5,30-39,Post-grad
+0,CA,Other,0.5,40-49,HS
+0,NV,White,0.5,40-49,4-Year College
+0,FL,White,0.5,18-29,No HS
+1,AZ,White,-0.5,18-29,4-Year College
+1,MA,White,-0.5,30-39,4-Year College
+1,IL,Black,-0.5,30-39,Post-grad
+1,NC,Black,-0.5,18-29,HS
+0,PA,White,-0.5,50-59,HS
+1,AL,White,-0.5,18-29,HS
+0,GA,White,-0.5,30-39,HS
+0,FL,White,0.5,50-59,4-Year College
+1,CO,White,-0.5,18-29,4-Year College
+1,AK,White,-0.5,70+,No HS
+1,SC,White,0.5,18-29,4-Year College
+1,TN,White,-0.5,60-69,4-Year College
+1,TN,White,-0.5,30-39,4-Year College
+1,NC,Black,-0.5,30-39,Some college
+0,CT,White,-0.5,60-69,4-Year College
+1,OR,White,0.5,40-49,4-Year College
+0,NY,White,0.5,40-49,Some college
+0,VA,White,-0.5,18-29,Some college
+0,WI,White,0.5,18-29,4-Year College
+0,CO,White,-0.5,30-39,Post-grad
+0,OK,White,-0.5,40-49,HS
+1,CA,White,0.5,70+,Some college
+1,TN,White,-0.5,50-59,HS
+1,AL,White,0.5,30-39,4-Year College
+0,TX,Hispanic,-0.5,18-29,Some college
+0,MI,White,0.5,50-59,4-Year College
+0,CA,White,-0.5,50-59,Some college
+1,VA,White,0.5,70+,4-Year College
+0,CA,Hispanic,-0.5,30-39,Some college
+0,KS,White,-0.5,50-59,Some college
+1,NJ,Other,-0.5,18-29,Some college
+0,NY,White,-0.5,30-39,Some college
+1,FL,White,0.5,60-69,Some college
+0,KY,White,-0.5,60-69,HS
+0,MD,Black,-0.5,40-49,Some college
+1,MA,White,0.5,50-59,HS
+0,CA,Black,-0.5,18-29,4-Year College
+1,NJ,White,-0.5,70+,HS
+1,TX,White,-0.5,70+,4-Year College
+1,NE,White,-0.5,50-59,HS
+0,NE,White,-0.5,30-39,HS
+1,TN,White,0.5,30-39,HS
+0,WA,Other,-0.5,18-29,Some college
+1,OR,White,0.5,60-69,4-Year College
+0,MN,White,-0.5,40-49,4-Year College
+0,WV,Black,0.5,18-29,4-Year College
+1,CA,White,-0.5,18-29,Some college
+0,MI,White,-0.5,70+,HS
+1,FL,White,0.5,60-69,HS
+0,OH,White,-0.5,50-59,Some college
+1,NC,White,0.5,18-29,Some college
+0,CA,Hispanic,-0.5,18-29,Some college
+0,NC,White,0.5,40-49,HS
+1,CA,White,0.5,70+,4-Year College
+0,TX,Hispanic,-0.5,50-59,HS
+1,ME,White,0.5,40-49,Some college
+0,WA,Other,0.5,70+,Post-grad
+1,KS,White,-0.5,40-49,Some college
+1,TN,White,-0.5,18-29,HS
+0,TX,Black,-0.5,40-49,Post-grad
+1,GA,White,0.5,60-69,4-Year College
+0,TX,White,0.5,40-49,Some college
+1,VA,White,-0.5,50-59,HS
+0,OK,White,-0.5,18-29,HS
+1,WA,Other,0.5,50-59,4-Year College
+1,NY,White,-0.5,50-59,Post-grad
+0,FL,Hispanic,0.5,40-49,Some college
+0,CA,White,-0.5,50-59,Some college
+0,MD,White,0.5,40-49,Post-grad
+0,MD,White,-0.5,60-69,4-Year College
+1,AR,White,0.5,70+,HS
+0,CT,White,0.5,18-29,HS
+0,CA,White,0.5,40-49,Some college
+1,WI,White,0.5,70+,4-Year College
+1,CA,White,0.5,50-59,HS
+0,TN,White,-0.5,30-39,4-Year College
+1,AL,Black,0.5,30-39,HS
+1,SC,Black,-0.5,50-59,HS
+0,TX,Hispanic,0.5,30-39,4-Year College
+1,CA,Black,0.5,30-39,4-Year College
+0,VA,Black,-0.5,30-39,Some college
+1,FL,Other,0.5,50-59,Post-grad
+0,TX,White,0.5,70+,Post-grad
+0,AZ,White,0.5,50-59,4-Year College
+1,TX,White,-0.5,70+,Post-grad
+1,OH,White,0.5,70+,Some college
+0,WV,Other,-0.5,60-69,Some college
+0,FL,White,-0.5,60-69,No HS
+0,NJ,White,-0.5,60-69,4-Year College
+0,OH,White,0.5,70+,HS
+0,TX,Other,0.5,30-39,Some college
+1,ME,White,0.5,60-69,HS
+0,MS,Black,-0.5,50-59,4-Year College
+0,IL,White,0.5,18-29,4-Year College
+0,PA,White,-0.5,18-29,4-Year College
+0,NY,White,-0.5,18-29,Post-grad
+0,MS,Black,-0.5,60-69,HS
+1,KY,White,0.5,30-39,Some college
+0,NY,Black,-0.5,50-59,HS
+1,GA,White,0.5,70+,Some college
+0,IL,Other,-0.5,60-69,4-Year College
+1,TX,White,-0.5,50-59,Some college
+1,CA,White,-0.5,70+,HS
+0,IL,Black,-0.5,50-59,Some college
+0,MA,White,-0.5,50-59,4-Year College
+1,CA,White,0.5,50-59,Post-grad
+1,HI,White,0.5,30-39,Some college
+0,MI,Black,0.5,30-39,Some college
+0,KS,White,-0.5,18-29,No HS
+1,MO,White,0.5,50-59,Post-grad
+0,FL,White,-0.5,50-59,Some college
+0,NH,White,-0.5,60-69,HS
+0,CO,White,0.5,60-69,HS
+0,NY,Black,0.5,40-49,No HS
+0,DE,Black,0.5,30-39,Some college
+0,FL,Black,-0.5,18-29,4-Year College
+0,MO,White,-0.5,18-29,4-Year College
+0,TX,Other,-0.5,50-59,No HS
+0,FL,White,-0.5,50-59,Some college
+0,FL,White,0.5,70+,HS
+0,CA,White,-0.5,70+,Post-grad
+1,IL,White,0.5,50-59,HS
+0,IN,White,-0.5,30-39,HS
+1,IL,White,-0.5,30-39,HS
+1,OH,White,-0.5,30-39,HS
+0,IA,Black,-0.5,30-39,Some college
+0,TX,White,0.5,30-39,No HS
+1,MD,White,-0.5,60-69,HS
+1,PA,White,-0.5,60-69,HS
+1,LA,White,-0.5,18-29,HS
+0,MD,White,-0.5,50-59,HS
+0,NY,White,-0.5,50-59,Some college
+1,AZ,White,0.5,70+,4-Year College
+1,MA,White,0.5,70+,4-Year College
+1,GA,White,-0.5,60-69,HS
+1,WV,White,-0.5,18-29,Some college
+1,MO,White,-0.5,40-49,4-Year College
+0,LA,Black,-0.5,30-39,4-Year College
+1,GA,White,0.5,30-39,HS
+0,NY,White,0.5,40-49,HS
+0,NY,White,-0.5,50-59,HS
+0,MI,White,-0.5,18-29,Some college
+0,TX,White,0.5,18-29,Post-grad
+0,ME,White,-0.5,60-69,HS
+1,VA,White,0.5,50-59,4-Year College
+1,SC,White,-0.5,60-69,HS
+0,VA,White,0.5,30-39,HS
+1,PA,White,-0.5,30-39,HS
+1,NM,Hispanic,-0.5,40-49,4-Year College
+0,WI,Other,-0.5,18-29,HS
+0,CA,White,0.5,70+,Some college
+1,VA,White,0.5,18-29,HS
+0,NC,White,-0.5,30-39,HS
+0,NY,White,-0.5,30-39,4-Year College
+1,AL,White,-0.5,30-39,Post-grad
+0,WA,White,-0.5,30-39,4-Year College
+1,GA,White,-0.5,18-29,HS
+0,GA,Black,-0.5,40-49,HS
+0,FL,White,-0.5,30-39,Some college
+0,NE,Other,-0.5,18-29,HS
+1,FL,Hispanic,0.5,18-29,Some college
+0,NC,Black,0.5,30-39,Some college
+1,IN,White,0.5,40-49,4-Year College
+0,CA,Hispanic,-0.5,30-39,HS
+0,MA,Other,-0.5,30-39,4-Year College
+1,KS,White,-0.5,60-69,4-Year College
+1,NC,Black,-0.5,18-29,4-Year College
+0,CO,White,0.5,50-59,Post-grad
+1,IL,White,-0.5,50-59,HS
+0,CA,White,0.5,50-59,Some college
+1,CO,White,0.5,70+,Some college
+1,WI,White,0.5,40-49,HS
+0,CA,Hispanic,-0.5,18-29,Some college
+0,MS,White,-0.5,50-59,Some college
+1,NY,White,-0.5,50-59,4-Year College
+1,CA,Other,-0.5,18-29,HS
+0,TX,Black,-0.5,60-69,Some college
+1,WV,White,-0.5,30-39,Some college
+0,MA,White,0.5,50-59,4-Year College
+0,NJ,White,-0.5,18-29,Post-grad
+1,GA,Black,-0.5,30-39,4-Year College
+1,GA,White,0.5,70+,4-Year College
+0,CA,Hispanic,0.5,50-59,Some college
+1,NJ,White,-0.5,70+,4-Year College
+0,TX,Hispanic,-0.5,50-59,Some college
+1,WI,White,-0.5,70+,Some college
+0,OH,Black,-0.5,40-49,No HS
+1,TX,White,0.5,18-29,Post-grad
+0,CA,Other,-0.5,40-49,Some college
+1,MN,White,0.5,50-59,Some college
+1,WY,White,-0.5,40-49,Some college
+0,MO,Other,-0.5,18-29,HS
+0,OR,White,0.5,60-69,4-Year College
+1,MD,Other,0.5,60-69,HS
+1,MI,White,0.5,70+,No HS
+1,IL,White,0.5,30-39,4-Year College
+0,AL,Black,-0.5,40-49,Some college
+1,TX,White,-0.5,18-29,HS
+0,PA,Black,-0.5,40-49,4-Year College
+1,FL,Black,-0.5,18-29,Some college
+0,SC,Black,-0.5,60-69,HS
+0,NJ,White,0.5,70+,4-Year College
+0,PA,White,-0.5,60-69,HS
+1,TX,Black,0.5,30-39,Some college
+0,MI,Black,0.5,70+,Some college
+1,PA,White,0.5,60-69,HS
+0,CA,White,-0.5,60-69,HS
+1,OR,White,0.5,18-29,4-Year College
+1,NY,White,-0.5,30-39,HS
+0,CA,White,-0.5,60-69,HS
+1,PA,White,-0.5,50-59,HS
+0,TX,Hispanic,0.5,18-29,Some college
+0,FL,White,-0.5,30-39,HS
+1,TX,White,-0.5,70+,Some college
+1,CO,White,0.5,40-49,Some college
+0,IL,White,-0.5,70+,HS
+1,MA,White,0.5,60-69,Post-grad
+0,LA,Black,-0.5,30-39,Post-grad
+1,PA,White,-0.5,70+,HS
+0,KY,Black,-0.5,40-49,Some college
+1,MS,Black,-0.5,18-29,HS
+1,IN,White,-0.5,30-39,4-Year College
+0,LA,White,-0.5,18-29,HS
+1,OH,White,-0.5,60-69,Some college
+0,MD,Black,-0.5,40-49,Post-grad
+0,MA,White,0.5,70+,4-Year College
+1,MO,White,-0.5,30-39,4-Year College
+0,KY,White,-0.5,30-39,HS
+0,IL,White,0.5,30-39,Post-grad
+1,NH,White,0.5,50-59,HS
+0,VA,Other,0.5,50-59,Some college
+1,CO,White,0.5,40-49,4-Year College
+1,PA,White,0.5,70+,Post-grad
+1,NH,White,0.5,70+,No HS
+0,MI,White,-0.5,18-29,Some college
+0,AZ,White,0.5,50-59,No HS
+0,CA,Hispanic,-0.5,30-39,Some college
+0,NJ,White,-0.5,60-69,4-Year College
+1,AZ,Other,0.5,40-49,4-Year College
+1,OH,White,-0.5,60-69,4-Year College
+0,LA,White,0.5,60-69,4-Year College
+1,TN,White,-0.5,18-29,Some college
+1,VA,Other,-0.5,18-29,HS
+0,IL,White,-0.5,50-59,Some college
+0,TX,White,0.5,18-29,Some college
+0,NJ,White,0.5,40-49,4-Year College
+0,NC,White,-0.5,40-49,HS
+0,GA,White,0.5,70+,Post-grad
+0,NY,White,-0.5,18-29,Post-grad
+1,PA,White,0.5,18-29,Some college

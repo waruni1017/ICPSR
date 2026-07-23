@@ -1,0 +1,188 @@
+---
+title: "Student Lab"
+subtitle: "Multilevel Adventures: Partial Pooling Before MRP"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    number_sections: false
+    theme: flatly
+    highlight: tango
+    css: mrp_case_study.css
+---
+
+```{r project-folders, include=FALSE}
+# Create expected project folders. If these already exist, their contents are left unchanged.
+dir.create("data", showWarnings = FALSE, recursive = TRUE)
+dir.create("models", showWarnings = FALSE, recursive = TRUE)
+```
+
+# Your task
+
+You need to build and check a multilevel model using a sample of 500 CCES respondents. Work only with the sample: do not poststratify and do not open the population table. We will use the instructor case study afterward to compare strategies and introduce MRP.
+
+**Main questions**
+
+ * What proportion supports allowing employers to decline abortion coverage? 
+ * How does support vary across states and demographic groups? 
+ * How strongly should estimates from thin states and demographic groups be pulled toward their hierarchical predictions?
+
+By the end, your should be prepared to defend one model using evidence from its priors, posterior predictions, calibration, and predictive fit. A complicated formula is not automatically a better model.
+
+## Use the primer as your code library
+
+This worksheet intentionally provides no R code. Open `01_mlm_primer.Rmd`, copy the relevant chunks, and adapt the outcome, predictors, grouping variables, family, data paths, and cache names. Do not edit or overwrite the primer’s cached models.
+
+| Task | Where to look in `01_mlm_primer.Rmd` |
+|:--|:--|
+| Load data and summarize groups | Section 1 |
+| Compare complete, no, and partial pooling | Sections 2.1–2.4 |
+| Specify and fit a multilevel model | Sections 2.3 and 3 |
+| Generate prior predictions | Section 4.1 |
+| Generate posterior predictions | Section 4.3 |
+| Check convergence, ESS, and sampler warnings | Appendix C |
+| Fit a Bernoulli-logit model | Section 5 |
+| Compare models with PSIS-LOO | Appendix B.6 |
+| Interpret the group-SD prior | Sections 4.4 and Appendix B |
+
+The classroom inputs are `data/cces_sample.csv`, `data/statelevel_predictors.csv`, and `data/cces_missingness.csv`. Save any model you fit under a new cache name containing your initials.
+
+<section class="lesson-codebook" aria-labelledby="codebook-title">
+<h2 id="codebook-title">Data at a glance</h2>
+<div class="table-responsive">
+<table class="table table-condensed table-striped">
+<caption>Variables used in the sample model and the population table.</caption>
+<thead>
+<tr><th scope="col">Variable</th><th scope="col">Coding</th><th scope="col">Meaning</th></tr>
+</thead>
+<tbody>
+<tr><th scope="row"><code>abortion</code></th><td>0 / 1</td><td>1 = supports letting employers decline abortion coverage.</td></tr>
+<tr><th scope="row"><code>state</code></th><td>50 states</td><td>Respondent’s state of residence.</td></tr>
+<tr><th scope="row"><code>male</code></th><td>−0.5 / +0.5</td><td>Centred binary sex indicator.</td></tr>
+<tr><th scope="row"><code>eth</code></th><td>4 levels</td><td>White, Black, Hispanic, or Other.</td></tr>
+<tr><th scope="row"><code>age</code></th><td>6 levels</td><td>18–29 through 70+.</td></tr>
+<tr><th scope="row"><code>educ</code></th><td>5 levels</td><td>No high school through postgraduate.</td></tr>
+<tr><th scope="row"><code>repvote</code></th><td>Proportion</td><td>Republican two-party vote share in 2016.</td></tr>
+<tr><th scope="row"><code>region</code></th><td>4 levels</td><td>US census region.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+# 1. Inspect the estimation problem
+
+Load the sample, join the state-level predictors, preserve the displayed factor ordering, and report the number of respondents, number of sampled states, and overall sample proportion supporting the policy.
+
+Review the missingness audit and identify which variables were involved in constructing the complete-case sample. What assumption would make complete-case analysis reasonable?
+
+Summarize the outcome separately by state. Make a figure that shows the state estimates, their uncertainty, and each state’s sample size. Sort states by their estimated support and include the overall sample proportion as a reference.
+
+**Discuss before fitting:**
+
+1. Which three states should move most under partial pooling, and why?
+2. What would complete pooling erase?
+3. What does no pooling mistake for signal?
+4. Which apparent state differences are supported by information, and which may be consequences of small samples?
+
+# 2. Establish benchmarks
+
+Fit a simple benchmark that treats states independently and another that partially pools them. A linear probability model with state indicators and a linear mixed model are acceptable fast benchmarks, but neither replaces the Bernoulli-logit model.
+
+Compare the benchmarks using a sorted coefficient or dumbbell plot. Make the direction and amount of shrinkage visible, and identify the states that move most.
+
+**Benchmark question:** Which limitation matters more here: predictions outside \([0,1]\), unstable state indicators, or excessive pooling? Explain using this sample rather than a general slogan.
+
+# 3. Check priors before outcomes
+
+The baseline state model is
+
+$$
+\begin{aligned}
+y_i &\sim \operatorname{Bernoulli}(p_i),\\
+\operatorname{logit}(p_i) &= \alpha + u_{s_i},\\
+\alpha &\sim \mathcal N(0,1.5^2),\\
+u_s &\sim \mathcal N(0,\tau^2),\\
+\tau &\sim \operatorname{Exponential}(2).
+\end{aligned}
+$$
+
+Use the prior-only workflow from the primer to simulate possible datasets before conditioning on the observed outcomes. Reduce every prior draw to at least two interpretable features: average support and the between-state spread in support.
+
+**Prior questions:**
+
+1. Does the prior allow implausibly unanimous states?
+2. Is the prior on average support too concentrated, too broad, or defensible?
+3. If you changed the exponential rate from 2 to 8, would you expect more or less pooling?
+4. Which substantive statement about state differences would justify your chosen prior for \(\tau\)?
+
+# 4. Build one model
+
+Choose and justify one of the following starting structures. You may propose a different structure if you can explain what additional variation it represents.
+
+**State-only model**
+
+$$
+\operatorname{logit}(p_i)=\alpha+u_{s_i}.
+$$
+
+**Contextual model**
+
+$$
+\operatorname{logit}(p_i)=\alpha+\boldsymbol{\beta}_{R}^{\mathsf T}\operatorname{region}_{s_i}+\beta_v\operatorname{repvote}_{s_i}+u_{s_i}.
+$$
+
+**Additive multilevel model**
+
+$$
+\operatorname{logit}(p_i)=\alpha+\beta_m\operatorname{male}_i+\boldsymbol{\beta}_{R}^{\mathsf T}\operatorname{region}_{s_i}+\beta_v\operatorname{repvote}_{s_i}+u_{s_i}+a_{\operatorname{age}[i]}+e_{\operatorname{eth}[i]}+d_{\operatorname{educ}[i]}.
+$$
+
+Before fitting, write down the prior for every population-level coefficient and every group-level standard deviation. Use the primer to check that the prior targets match the selected formula.
+
+After fitting, verify divergences, rank-normalized \(\widehat R\), bulk effective sample size, and any warnings before interpreting coefficients or predictions.
+
+**Model-building questions:**
+
+1. What comparison or estimand motivates every term you added?
+2. Which effects should be pooled, and which should be modeled as population-level coefficients?
+3. Does the sample contain enough information for every varying effect?
+4. What would make you simplify the model?
+
+# 5. Check posterior plausibility
+
+Adapt the posterior-prediction workflow from Section 4.3 of the primer. Ask whether replicated surveys reproduce the overall support rate and the observed spread of state proportions. Add one further statistic that targets a feature your model is specifically intended to explain.
+
+**Posterior questions:**
+
+1. Does the observed value look typical under each posterior predictive distribution?
+2. If the model misses state spread, would you change the predictors, the varying effects, or the prior on \(\tau\)?
+3. Which aspect of the data remains unchecked by your selected statistics?
+4. Can the model match the overall mean while still failing for important subgroups?
+
+# 6. Check calibration and predictive fit
+
+Use observation-level PSIS-LOO to assess how well the model predicts another respondent when that respondent’s state remains represented in the training data. Examine Pareto-\(k\) diagnostics before interpreting an ELPD comparison.
+
+Create a calibration display by grouping leave-one-out predicted probabilities and comparing the mean prediction with the observed proportion in each group. The diagonal should represent perfect calibration.
+
+**Model-comparison questions:**
+
+1. Is the ELPD difference large relative to its standard error?
+2. Are the Pareto-\(k\) diagnostics acceptable?
+3. Does the more predictive model also produce more plausible replicated state variation?
+4. Would you choose the same model if the target were a completely new state?
+5. What validation scheme would better approximate prediction for an unseen state?
+
+# 7. Prepare your report
+
+Write down concise answers before the instructor discussion:
+
+1. **Model:** What formula and priors did you use?
+2. **Prior check:** What did the priors imply, and what—if anything—did you change?
+3. **Pooling:** Which estimates shrank most, and was that consistent with their sample sizes?
+4. **Posterior check:** Which observed features did the model reproduce or miss?
+5. **Prediction:** What did PSIS-LOO and calibration add to your assessment?
+6. **Concern:** What is one reason these sample estimates should not yet be interpreted as US population quantities?
+
+> **Stop here.** Keep the fitted model, figures, and answers available. The instructor document will profile the pooling parameter, compare richer specifications, and then change the target distribution through poststratification.

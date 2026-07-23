@@ -1,0 +1,13 @@
+variable,missing_n,total_n,missing_pct,stage
+Outcome: abortion item,63,60000,0.105,Raw fields
+State,0,60000,0,Raw fields
+Sex,0,60000,0,Raw fields
+Race,0,60000,0,Raw fields
+Birth year,0,60000,0,Raw fields
+Education,0,60000,0,Raw fields
+Outcome,63,60000,0.105,After recoding
+State,127,60000,0.21166666666666667,After recoding
+Ethnicity,0,60000,0,After recoding
+Sex,0,60000,0,After recoding
+Age,0,60000,0,After recoding
+Education,0,60000,0,After recoding

@@ -1,0 +1,2396 @@
+---
+title: "Multilevel Models, One Question at a Time"
+subtitle: "A concise brms primer for partial pooling and multilevel prediction"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    number_sections: false
+    theme: flatly
+    highlight: tango
+    fig_width: 8
+    fig_height: 5
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+# Create expected project folders. If these already exist, their contents are left unchanged.
+dir.create("data", showWarnings = FALSE, recursive = TRUE)
+dir.create("models", showWarnings = FALSE, recursive = TRUE)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  dpi = 150
+)
+
+options(width = 100)
+
+# load libraries
+library(tidyverse)
+library(brms)
+library(bayesplot)
+library(lme4)
+library(patchwork)
+
+# set visual themes and colors
+bayesplot::color_scheme_set("purple")
+
+theme_primer <- theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold"),
+    plot.title.position = "plot",
+    plot.caption = element_text(colour = "grey40", hjust = 0),
+    legend.position = "bottom"
+  )
+
+COL <- c(
+  raw = "#D97706",
+  pool = "#1B9E77",
+  partial = "#6D28D9",
+  pred = "#2563A5",
+  truth = "#303030"
+)
+```
+
+# What this primer is for
+
+This primer prepares us to read and fit a multilevel regression and poststratification (MRP) model. We will answer one applied question:
+
+> **Which Minnesota counties have high radon, and how certain are we?**
+
+The difficulty is that the counties with the most extreme sample averages often have the fewest measured homes. A useful model must distinguish real between-county variation from sampling noise.
+
+## Notation and regression grammar
+
+Throughout, $i$ indexes a home, $j$ indexes a county, $n_j$ is the number of homes observed in county $j$, and $J$ is the number of counties. The outcome is $y_{ij}$; $x_{ij}$ denotes a home-level predictor and $z_j$ a county-level predictor. Code sometimes writes $y_i$ and `j[i]` as shorthand for the same nested observation.
+
+The Gaussian models use the ordinary regression grammar
+
+$$
+y_{ij}=\eta_{ij}+\varepsilon_{ij},
+\qquad
+\varepsilon_{ij}\stackrel{\mathrm{ind}}{\sim}\mathcal{N}(0,\sigma^2),
+$$
+
+with linear predictor
+
+$$
+\eta_{ij}=\beta_0+x_{ij}^{\mathsf T}\beta+z_j^{\mathsf T}\gamma+a_j.
+$$
+
+The likelihood assumes conditionally independent residuals with a common within-county SD $\sigma$. A random-intercept model additionally assumes exchangeable county deviations $a_j\stackrel{\mathrm{iid}}{\sim}\mathcal{N}(0,\tau^2)$, independent of the residuals. These are modeling assumptions, not facts guaranteed by the data; predictors should be added when they explain systematic county differences that would otherwise be absorbed by $a_j$.
+
+By the end, you should be able to:
+
+1. distinguish complete, no, and partial pooling;
+2. interpret the within-group standard deviation $\sigma$ and between-group standard deviation $\tau$;
+3. explain why small groups shrink more;
+4. use a group-level predictor to improve estimates for thin or unobserved groups;
+5. use prior and posterior predictive simulation to assess overall and between-group plausibility; and
+6. translate the model to a binary outcome on the logit scale.
+
+The main path is designed for one class session. Sections labelled **Optional** can be mentioned briefly or assigned after class. The appendices preserve the derivation and the important warning about models with very few groups.
+
+> **Suggested live route.** Spend most class time on raw instability, the no-pooling/partial-pooling comparison, predictor-guided shrinkage, and prior/posterior plausibility. Briefly show prediction for unseen counties and the binary bridge; use the variance-prior appendix as discussion or follow-up material.
+
+# 1. Why raw group averages mislead
+
+Radon is a radioactive gas that can accumulate inside homes. Minnesota measured radon in 919 homes distributed across 85 counties. Ranking the counties by their sample averages looks like a natural first step.
+
+```{r read-radon}
+radon <- read_csv("data/radon.csv", show_col_types = FALSE)
+
+# Reduce the home-level data to the county summaries used throughout the pooling comparison.
+county_summary <- 
+  radon |>
+  group_by(county) |>
+  summarise(
+    n = n(),
+    mean_lr = mean(log_radon),
+    se = sd(log_radon) / sqrt(n),
+    log_uranium = first(log_uranium),
+    .groups = "drop"
+  )
+
+# how many units and clusters there are?
+c(homes = nrow(radon), counties = n_distinct(radon$county))
+
+# what are the top 5 clusters based on their mean outcome?
+county_summary |>
+  arrange(desc(mean_lr)) |>
+  select(county, n, mean_lr) |>
+  slice_head(n = 5)
+```
+
+The ranking is arithmetically correct, but several apparent leaders rest on only one or two homes. Their locations in the ranking are therefore highly unstable.
+
+```{r radon-funnel, echo=FALSE, fig.height=4.4, fig.cap="Each point is a county mean; vertical lines show approximately two standard errors. Extreme sample means are concentrated among counties with few measured homes."}
+(grand_mean <- mean(radon$log_radon))
+
+# Plot precision and sample means together to reveal the small-county extremes.
+county_summary |> 
+  ggplot(aes(n, mean_lr)) +
+  # display the grand mean (reference point)
+  geom_hline(
+    yintercept = grand_mean,
+    linetype = 2,
+    colour = "grey55"
+  ) +
+  # display the uncertainty
+  geom_linerange(
+    aes(ymin = mean_lr - 2 * se, ymax = mean_lr + 2 * se),
+    colour = "grey75",
+    linewidth = 0.4
+  ) +
+  # display the means
+  geom_point(
+    aes(size = n),
+    colour = COL[["raw"]],
+    alpha = 0.8
+  ) +
+  scale_size_area(max_size = 6, guide = "none") +
+  labs(
+    title = "Raw county means",
+    x = "Homes measured",
+    y = "Mean log radon"
+  ) +
+  theme_primer
+```
+
+The funnel shape is sampling variation: averages based on little information can wander far from the statewide mean. A ranking of raw averages treats a one-home county as if it were measured as precisely as a county with one hundred homes.
+
+## Optional: a null world
+
+Suppose every county had the same true radon level. We can preserve the observed county sample sizes, simulate homes from one common distribution, and ask how much the resulting county averages vary.
+
+```{r null-world, fig.height=3.4, fig.cap="The histogram shows the SD of county means in 2,000 simulations with a common county mean and the observed county sample sizes. The vertical line is the observed SD. Small counties create substantial dispersion even in this null world."}
+set.seed(1010)
+
+observed_spread <- sd(county_summary$mean_lr)
+
+# Store one simulated between-county spread per repetition.
+sims <- 2000
+dat <- numeric(sims)
+
+for (i in 1:sims) {
+  # Step 1: simulate every home from one statewide distribution.
+  # Clusters are identical; only home-to-home noise remains.
+  y_sim <- rnorm(
+    nrow(radon),
+    mean = grand_mean,
+    sd = sd(radon$log_radon)
+  )
+
+  # Step 2: compute the mean of the simulated homes in each real county.
+  c_means <- tapply(
+    y_sim,
+    radon$county,
+    mean
+  )
+
+  # Step 3: record how far apart those county means appear in this null world.
+  dat[i] <- sd(c_means)
+}
+
+# Summarize the null distribution for the interpretation below.
+null_median <- median(dat)
+null_interval <- quantile(dat, c(0.025, 0.975))
+null_upper_tail <- mean(dat >= observed_spread)
+
+# Compare the observed county spread with the 2,000 null-world values.
+tibble(spread = dat) |>
+  ggplot(aes(spread)) +
+  geom_histogram(
+    bins = 35,
+    fill = "grey75",
+    colour = "white",
+    linewidth = 0.2
+  ) +
+  geom_vline(
+    xintercept = observed_spread,
+    colour = COL[["raw"]],
+    linewidth = 0.9
+  ) +
+  labs(
+    title = "Could noise explain the county spread?",
+    x = "SD of simulated county means",
+    y = NULL
+  ) +
+  theme_primer
+```
+
+The observed SD of the county means is `r round(observed_spread, 3)`, compared with a null median of `r round(null_median, 3)` and a null 95% interval of [`r round(null_interval[1], 3)`, `r round(null_interval[2], 3)`]. About `r scales::percent(null_upper_tail, accuracy = 0.1)` of the null simulations produce at least as much spread. Thus, the observed dispersion is unusual under the common-mean model, but it is not far beyond what small and unequal county samples can occasionally generate. This is evidence of additional systematic heterogeneity under the simulation assumptions—not evidence that the sample is defective or proof that geography itself causes radon differences.
+
+The raw spread combines two sources:
+
+$$
+\underbrace{\operatorname{Var}(\bar y_j)}_{\text{spread of county means}}
+\approx
+\underbrace{\tau^2}_{\text{between-county heterogeneity}}
++
+\underbrace{\frac{\sigma^2}{n_j}}_{\text{sampling noise}}.
+$$
+
+No pooling effectively treats each observed county mean as its own signal, even when much of an extreme value may be sampling noise (**overfit**). Complete pooling sets $\tau=0$ and treats all counties as sharing one mean. Partial pooling takes the middle position: it estimates the between-county scale $\tau$ while accounting for the unequal uncertainty $\sigma^2/n_j$. Counties with many homes retain more of their observed difference; counties with few homes move further toward the common or predictor-based mean. Partial pooling therefore estimates the amount of between-county heterogeneity supported by the model and data without interpreting the entire raw dispersion of county means as systematic difference.
+
+# 2. Three pooling strategies
+
+The three basic estimators differ only in how county parameters are related.
+
+The radon example is cross-sectional, so “time-invariant effects” below means predictors that are constant within a group; the same distinction becomes important in longitudinal multilevel models.
+
+| Strategy | Model representation | Pooling and overfit risk | Between-group variance question | Time-invariant / level-2 effects |
+|:--|:--|:--|:--|:--|
+| **Complete pooling** | $y_{ij}\sim f(\mu,\ldots)$ | No group-specific parameters, so variance and group-overfitting risk are low. It can nevertheless underfit genuine group differences. | Imposes $\tau=0$; it cannot estimate how much groups differ. | Can estimate a common coefficient for an included group-level predictor, but cannot retain unexplained group-specific effects. |
+| **No pooling** | $y_{ij}\sim f(\alpha_j,\ldots)$ | Makes no borrowing across groups. It is flexible but has high variance and can overfit thin groups. | Does not estimate a common $\tau$. The spread of $\alpha_j$ mixes true heterogeneity with sampling noise. | With group indicators, a predictor constant within group is collinear with those indicators and cannot be separately estimated. |
+| **Partial pooling** | $y_{ij}\sim f(\alpha_j,\ldots)$<br>$\alpha_j\sim\mathcal N(\mu,\tau^2)$ | Regularizes weakly informed groups while allowing well-measured groups to differ. Overfitting is reduced but still depends on priors, structure, and validation. | Directly estimates $\tau$, the residual between-group SD, and supports an ICC or predictions for existing and new groups. | Can estimate level-2 or time-invariant predictors while retaining residual group variation, subject to credible random-effects assumptions. |
+
+Complete pooling answers an overall-average question. No pooling provides descriptive group estimates but risks confusing noise with heterogeneity. Partial pooling asks how much groups differ after accounting for unequal information, and how strongly each group estimate should be regularized toward the common pattern.
+
+The ICC is a global summary of between-group similarity, not the exact pooling applied to each group. Under partial pooling, the shrinkage weight varies because it depends on both \(\tau\) and the group’s information, usually reflected in its sample size.
+
+### The same three models in regression notation
+
+The ordinary one-level linear regression is the familiar starting point,
+
+$$
+y_i=\beta_0+x_i^{\mathsf T}\beta+\varepsilon_i,
+\qquad
+\varepsilon_i\stackrel{\mathrm{ind}}{\sim}\mathcal{N}(0,\sigma^2).
+$$
+
+Complete pooling is the intercept-only special case, $y_{ij}=\beta_0+\varepsilon_{ij}$. No pooling is a regression with a separate county indicator for every county, $y_{ij}=\beta_0+\sum_{k=2}^{J}\delta_k\,\mathbb{1}(\text{county}_{ij}=k)+\varepsilon_{ij}$; the county indicators are fixed effects and are not drawn from a common distribution. Partial pooling replaces those unrelated indicators with a random intercept, $y_{ij}=\beta_0+a_j+\varepsilon_{ij}$, where $a_j\sim\mathcal{N}(0,\tau^2)$. The Bayesian model adds priors to the regression coefficients and variance components, while the regression structure determines which comparisons are being estimated. In the notation above, the complete-pooling intercept is $\beta_0=\mu$, and the partial-pooling intercept is $\beta_0=\mu$ with county deviation $a_j$.
+
+## 2.1 A first brms model
+
+The complete-pooling model ignores county:
+
+$$
+\begin{aligned}
+y_{ij} &\sim \mathcal{N}(\mu,\sigma^2),
+&& i=1,\ldots,n_j,\quad j=1,\ldots,J,\\
+\mu &\sim \operatorname{Student}\text{-}t(3,1.3,2.5),\\
+\sigma &\sim \operatorname{Student}\text{-}t^+(3,0,2.5).
+\end{aligned}
+$$
+
+| Parameter | Common choices | What the choice controls |
+|:--|:--|:--|
+| Mean or intercept $\mu$ | Normal or Student-$t$ | Location and plausible range of the outcome before observing the data. |
+| Residual SD $\sigma$ | Half-normal, half-$t$, Exponential, or half-Cauchy | How much within-home noise is plausible; all are restricted to positive values. |
+| Residual variance $\sigma^2$ | Inverse-Gamma, usually as a deliberately parameterized alternative | A prior on the squared scale; historically convenient but often harder to interpret and calibrate. |
+
+We use Student-$t$ priors because they are weakly informative: the location and scale encode a plausible radon range, while the heavy tails avoid ruling out unusually large means or residual variation too aggressively. The prior on $\sigma$ is a positive (half-)Student-$t$ prior for the residual standard deviation, not for the variance $\sigma^2$ itself; its truncation respects positivity while still allowing substantial noise. The location $1.3$ and scale $2.5$ for $\mu$ put most prior mass on a broad but plausible range of log-radon values, while the scale $2.5$ for $\sigma$ remains permissive about measurement variation.
+
+Other defensible choices include a Normal prior for $\mu$ when the measurement scale is well understood, a half-Normal or Exponential prior for $\sigma$ when stronger regularization is appropriate, and a half-Cauchy when very large residual scales should remain possible. An inverse-Gamma prior belongs on $\sigma^2$ rather than $\sigma$; its shape and scale must be chosen from a substantive statement, not from a supposedly vague default. Flat or improper priors are possible reference choices, but they can produce implausible prior predictions or unstable behavior and are therefore less useful as a classroom default. The practical choice should be checked by prior predictive simulation on the outcome scale.
+
+Here $y_{ij}$ is the log-radon measurement for home $i$ in county $j$. We write the priors explicitly so the mathematical model and fitted model remain reproducible even if software defaults change.
+
+### How `brms` reads prior syntax
+
+`brms::set_prior()` defines a prior as a Stan distribution statement plus the parameter class it targets; `prior()` is a convenient alias that accepts the same expression without quotation marks. Common syntax includes `normal(location, scale)`, `student_t(df, location, scale)`, `exponential(rate)`, `cauchy(location, scale)`, `gamma(shape, rate)`, `inv_gamma(shape, scale)`, `lognormal(location, scale)`, `uniform(lower, upper)`, and `beta(shape1, shape2)` when the parameter support is appropriate. In this model, `class = "Intercept"` targets the population intercept and `class = "sigma"` targets the positive residual SD; `class = "sd"` targets group-level SDs such as $\tau$. The [official `set_prior()` documentation](https://paulbuerkner.com/brms/reference/set_prior.html) lists the available classes and syntax, while the Stan language permits additional valid distribution expressions.
+
+Use `get_prior()` to see which parameters a formula creates, `validate_prior()` to check that a proposed prior targets the intended parameters, and `make_stancode()` to inspect how `brms` translates the model to Stan. These tools are part of prior specification, not optional debugging after fitting.
+
+```{r brm-mean, results="hide"}
+# Fit one statewide mean. The file argument loads the cached fit after the
+# first successful run.
+m0 <- brm(
+  log_radon ~ 1,
+  data = radon,
+  family = gaussian(),
+  prior = c(
+    prior(student_t(3, 1.3, 2.5), class = Intercept),
+    prior(student_t(3, 0, 2.5), class = sigma)
+  ),
+  chains = 4,
+  iter = 2000,
+  seed = 1010,
+  file = "models/m0_pool"
+)
+```
+
+```{r brm-mean-summary}
+posterior_summary(m0, pars = c("b_Intercept", "sigma"))
+```
+
+The posterior is a table of draws, not only the point estimates printed by `summary()`. One row is one joint draw of all model parameters. With `chains = 4`, `iter = 2000`, and the default `warmup = 1000`, this fit retains
+
+$$
+S = M(I-W) = 4(2000-1000) = 4000
+$$
+
+post-warmup draws. Warmup draws are used to adapt the sampler and are not posterior draws. More generally, changing `chains`, `iter`, `warmup`, or `thin` changes the number of rows retained.
+
+```{r posterior-draws}
+# Expose the posterior draws so later derived quantities are ordinary
+# row-by-row calculations rather than hidden model summaries. The .chain,
+# .iteration, and .draw columns identify where each posterior draw came from.
+draws0 <- as_draws_df(m0)
+
+draws0 |>
+  select(.chain, .iteration, .draw, b_Intercept, sigma) |>
+  slice_head(n = 4)
+
+quantile(draws0$b_Intercept, c(.025, .5, .975))
+```
+
+`as_draws_df()` is the bridge from a fitted `brms` object to ordinary data analysis. Its rows retain the joint posterior draw: values in the same row were sampled together and therefore preserve posterior dependence. This is why an ICC, a county mean, a variance, or a poststratified estimate should be computed row by row before taking posterior summaries. `posterior::variables(draws0)` lists the available parameter columns and `nrow(draws0)` reports the retained number of draws.
+
+### A compact `brms` inspection workflow
+
+The functions below are the core tools used throughout this primer. They answer different questions; none substitutes for the others.
+
+| Function | Use it to ask | Typical output |
+|---|---|---|
+| `summary(fit)` | Did sampling finish cleanly and are parameters broadly sensible? | Parameter summaries, $\widehat R$, ESS, and sampler information. |
+| `posterior_summary(fit, pars = ...)` | What is the posterior center and interval for selected parameters? | Mean, SD, and quantiles. |
+| `as_draws_df(fit)` | How do I calculate or plot a posterior quantity myself? | One post-warmup joint draw per row. |
+| `fixef(fit)` | What are the population-level intercepts and slopes? | Posterior summaries of $\beta$ parameters. |
+| `ranef(fit)` | What is each group's deviation from the population effect? | Posterior summaries of $a_j$. |
+| `coef(fit)` | What is each group's full coefficient after adding population and group effects? | Posterior summaries of $\beta_0 + a_j$. |
+| `VarCorr(fit)` | How large are residual and group-level SDs/correlations? | Summaries of $\sigma$, $\tau$, and covariance terms. |
+| `pp_check(fit)` | Can replicated data from the model resemble the observed data? | Posterior predictive diagnostic plot. |
+| `loo(fit)` and `loo_compare(...)` | Which of several models predicts held-out cases better? | Expected log predictive density and PSIS diagnostics. |
+| `posterior_epred()` / `posterior_predict()` | What does the model imply for a new or observed case? | Draws of expected outcomes / full replicated outcomes. |
+
+For a first pass, use `summary()` and a posterior predictive check. Then use `as_draws_df()` for substantive quantities and `loo()` only when comparing genuinely different predictive models. The later sections introduce the group-specific functions after the county hierarchy has been fitted.
+
+Poststratification later applies population weights inside each row of a much larger posterior table. This is why it matters to see posterior draws as ordinary data on which we can perform arithmetic.
+
+## 2.2 No pooling
+
+A separate coefficient for every county is written:
+
+```{r no-pooling, results="hide"}
+# Give each county an unrelated intercept. The 0 removes the common intercept.
+m_no_pool <- brm(
+  log_radon ~ 0 + county,
+  data = radon,
+  family = gaussian(),
+  prior = prior(student_t(3, 0, 2.5), class = sigma),
+  chains = 4,
+  iter = 2000,
+  seed = 1010,
+  file = "models/m_fe"
+)
+```
+
+Formally,
+
+$$
+\begin{aligned}
+y_{ij} &\sim \mathcal{N}(\alpha_j,\sigma^2),
+&& i=1,\ldots,n_j,\quad j=1,\ldots,J,\\
+p(\alpha_j) &\propto 1,
+&& j=1,\ldots,J,\\
+\sigma &\sim \operatorname{Student}\text{-}t^+(3,0,2.5).
+\end{aligned}
+$$
+
+No pooling does not set the spread of $\mu$ to zero; it removes $\mu$ from the model. Each $\alpha_j$ is estimated independently, so there is no shared center or between-county variance parameter. The common prior on $\sigma$ describes within-county measurement noise only. An identical proper prior could be assigned independently to every $\alpha_j$, but that would regularize each county separately without creating partial pooling.
+
+In the code, `j[i]` identifies the county containing home $i$. Because the $\alpha_j$ are unrelated, every county is estimated using only its own homes. The model therefore preserves the instability visible in the funnel plot.
+
+```{r no-pooling-summary}
+# Convert the coefficient matrix to a tidy table before sorting.
+# robust = TRUE requests posterior medians
+no_pool_summary <- 
+  fixef(m_no_pool, robust = TRUE) |>
+  as.data.frame() |>
+  rownames_to_column("term") |>
+  as_tibble()
+
+# display the top 5 esitmates
+no_pool_summary |>
+  arrange(desc(Estimate)) |>
+  select(term, Estimate, Q2.5, Q97.5) |>
+  slice_head(n = 5)
+```
+
+`robust = TRUE` reports posterior medians rather than posterior means. The intervals are especially wide for counties with only one or two measured homes. These posterior medians provide the unpooled endpoint for the comparison in §2.4.
+
+## 2.3 Partial pooling
+
+Partial pooling adds one distribution for the county intercepts:
+
+$$
+\begin{aligned}
+ y_{ij} &\sim \mathcal{N}(\alpha_j,\sigma^2),
+ && i=1,\ldots,n_j,\quad j=1,\ldots,J,\\
+\alpha_j &\sim \mathcal{N}(\mu,\tau^2),
+&& j=1,\ldots,J,\\
+\mu &\sim \operatorname{Student}\text{-}t(3,1.3,2.5),\\
+\sigma &\sim \operatorname{Student}\text{-}t^+(3,0,2.5),\\
+\tau &\sim \operatorname{Exponential}(2).
+\end{aligned}
+$$
+
+The new parameter $\tau$ is the between-county standard deviation. The residual standard deviation $\sigma$ describes differences among homes within a county. The brms term `(1 | county)` encodes the second line of the model.
+
+There are two equivalent notations for the county intercept. We can model the full intercept directly as $\alpha_j\sim\mathcal{N}(\mu,\tau^2)$, or write $\alpha_j=\mu+a_j$ with a centered deviation $a_j\sim\mathcal{N}(0,\tau^2)$. The predictor model below uses the centered-deviation form because it separates the common intercept from the effects explained by covariates.
+
+```{r partial-pooling, results="hide"}
+# Fit the county hierarchy. class = sd targets tau, the SD of county effects.
+m_county <- brm(
+  log_radon ~ 1 + (1 | county),
+  data = radon,
+  family = gaussian(),
+  prior = c(
+    prior(student_t(3, 1.3, 2.5), class = Intercept),
+    prior(student_t(3, 0, 2.5), class = sigma),
+    prior(exponential(2), class = sd)
+  ),
+  chains = 4,
+  iter = 2000,
+  seed = 1010,
+  file = "models/m_county"
+)
+```
+
+```{r variance-components}
+# Extract tau and then compute one ICC for every posterior draw.
+VarCorr(m_county)$county$sd
+
+draws_county <- as_draws_df(m_county)
+
+icc <- draws_county$sd_county__Intercept^2 /
+  (draws_county$sd_county__Intercept^2 + draws_county$sigma^2)
+
+quantile(icc, c(.025, .5, .975))
+```
+
+The intraclass correlation,
+
+$$
+\operatorname{ICC}
+=
+\frac{\tau^2}{\tau^2+\sigma^2},
+$$
+
+is the share of outcome variation attributable to differences between counties. It is a posterior distribution because both $\tau$ and $\sigma$ are uncertain.
+
+### Extracting posterior distributions
+
+Every fitted Bayesian parameter has a distribution of posterior draws. `as_draws_df()` converts those draws to a data frame: use the column name for a population parameter, the `sd_` name for a group-level standard deviation, and `r_county[...]` for a county deviation. In this model, the posterior draw for county $j$'s full mean is the row-by-row sum
+
+$$
+\alpha_j^{(s)} = \beta_0^{(s)} + a_j^{(s)},
+\qquad s=1,\ldots,S.
+$$
+
+Thus, a county's `r_county[...]` column alone is a deviation from the overall intercept; it is not the county mean. The model stores $\tau$ as `sd_county__Intercept`. Square that column draw by draw when the variance, $	au^2$, is the quantity of interest.
+
+```{r posterior-parameter-density-data, include=FALSE}
+# Inspect available draw names with posterior::variables(draws_county).
+# These counties illustrate a thin, medium, and large group.
+selected_counties <- c("AITKIN", "ANOKA", "HENNEPIN")
+county_effect_names <- paste0("r_county[", selected_counties, ",Intercept]")
+
+# Add the population intercept to each county deviation in every posterior draw.
+county_mean_draws <- tibble(
+  "County mean: Aitkin" = draws_county$b_Intercept + draws_county[[county_effect_names[1]]],
+  "County mean: Anoka" = draws_county$b_Intercept + draws_county[[county_effect_names[2]]],
+  "County mean: Hennepin" = draws_county$b_Intercept + draws_county[[county_effect_names[3]]]
+)
+
+# gather each countries means' draws
+cmeans_d <-
+  county_mean_draws |>
+    pivot_longer(everything(), 
+                 names_to = "parameter", 
+                 values_to = "draw")
+#
+cdraws <-
+  draws_county |>
+    transmute(
+      "Overall mean" = b_Intercept,
+      "County SD: tau" = sd_county__Intercept,
+      "Residual SD: sigma" = sigma
+    ) |>
+    pivot_longer(everything(), 
+                 names_to = "parameter", 
+                 values_to = "draw")
+
+posterior_density_data <- 
+  bind_rows(cmeans_d,cdraws) |>
+  mutate(
+    parameter = factor(parameter,
+                       levels = c(
+                         "Overall mean", 
+                         "County mean: Aitkin", 
+                         "County mean: Anoka",
+                         "County mean: Hennepin", 
+                         "County SD: tau",
+                         "Residual SD: sigma"
+      )
+    )
+  )
+```
+
+```{r posterior-parameter-densities, echo=FALSE, fig.height=5.3, fig.cap="Posterior distributions from the varying-intercept model. County means combine the overall intercept and each county's deviation; tau and sigma are standard deviations, not variances. Each facet uses its own horizontal scale. The Aitkin, Anoka, and Hennepin panels represent groups with comparatively few, moderate, and many sampled homes."}
+ggplot(posterior_density_data, aes(draw)) +
+  geom_density(
+    fill = COL[["partial"]],
+    colour = COL[["partial"]],
+    alpha = 0.55,
+    linewidth = 0.4
+  ) +
+  facet_wrap(~ parameter, ncol = 3, scales = "free") +
+  labs(
+    title = "Posterior distributions are draws, not single estimates",
+    x = "parameter value",
+    y = "density"
+  ) +
+  theme_primer
+```
+
+The same pattern works for any parameter: identify its draw column, then summarize, transform, or plot that column. Derived quantities—an ICC, a county mean, a variance, or a prediction—should be calculated separately within each posterior draw before taking medians or intervals.
+
+A classical multilevel model uses the same likelihood and pooling structure but estimates the variance components without priors. This provides a useful benchmark for the Bayesian county estimates and prepares the comparison used in the MRP exercise.
+
+```{r lmer-benchmark}
+# Fit the same hierarchy with lmer to separate partial pooling from prior choice.
+m_lmer <- lmer(log_radon ~ 1 + (1 | county), data = radon)
+
+lmer_variance <- as.data.frame(VarCorr(m_lmer))
+
+tibble(
+  model = c("lmer", "Bayesian"),
+  tau = c(
+    lmer_variance$sdcor[lmer_variance$grp == "county"],
+    VarCorr(m_county)$county$sd[, "Estimate"]
+  )
+)
+```
+
+Agreement is expected with 85 counties because the likelihood contains substantial information about $\tau$. Differences become more consequential with only a few groups or a strongly regularizing prior.
+
+## 2.4 What partial pooling changes
+
+For a Gaussian varying-intercept model, the pooling weight is approximately
+
+$$
+\theta_j
+=
+\frac{\tau^2}{\tau^2+\sigma^2/n_j}.
+$$
+
+The county estimate is a compromise between its raw mean and the overall mean. As $n_j$ increases, $\theta_j$ approaches one and the county retains more of its own sample information. Small counties move farther toward the shared mean.
+
+```{r county-estimates, include=FALSE}
+# Extract one posterior median per county from the partial-pooling model.
+partial_coef <- coef(m_county, robust = TRUE)$county[, , "Intercept"] |>
+  as.data.frame() |>
+  rownames_to_column("county") |>
+  as_tibble() |>
+  transmute(
+    county,
+    partial_pooling = Estimate
+  )
+
+# Reuse the tidy no-pooling table created in section 2.2.
+no_pool_coef <- no_pool_summary |>
+  transmute(
+    county = sub("^county", "", term),
+    no_pooling = Estimate
+  )
+
+# Join the two estimators and order counties by their partial-pooling medians.
+county_results <- county_summary |>
+  left_join(no_pool_coef, by = "county") |>
+  left_join(partial_coef, by = "county") |>
+  arrange(desc(partial_pooling)) |>
+  mutate(
+    county = factor(county, levels = county),
+    distance = abs(no_pooling - partial_pooling)
+  )
+```
+
+```{r no-vs-partial-pooling, echo=FALSE, fig.width=12, fig.height=6.2, fig.cap="Counties are ordered from the highest to the lowest partial-pooling estimate. Orange circles are no-pooling posterior medians; purple circles are partial-pooling medians; grey connectors show the change induced by pooling. The dashed line is the statewide mean."}
+# Draw one vertical connector per county to make the amount of shrinkage visible.
+ggplot(county_results, aes(x = county)) +
+  geom_hline(
+    yintercept = grand_mean,
+    colour = "grey45",
+    linetype = 2,
+    linewidth = 0.7
+  ) +
+  geom_segment(
+    aes(
+      xend = county,
+      y = no_pooling,
+      yend = partial_pooling
+    ),
+    colour = "grey65",
+    linewidth = 0.55
+  ) +
+  geom_point(
+    aes(y = no_pooling, colour = "No pooling"),
+    shape = 21,
+    fill = "white",
+    stroke = 0.8,
+    size = 2
+  ) +
+  geom_point(
+    aes(y = partial_pooling, colour = "Partial pooling"),
+    shape = 16,
+    size = 1.9
+  ) +
+  scale_colour_manual(
+    values = c(
+      "No pooling" = COL[["raw"]],
+      "Partial pooling" = COL[["partial"]]
+    ),
+    name = NULL
+  ) +
+  scale_y_continuous(
+    name = "Posterior median log-radon estimate",
+    sec.axis = dup_axis(name = NULL)
+  ) +
+  labs(
+    title = "No pooling and partial pooling",
+    x = NULL
+  ) +
+  theme_primer +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(
+      colour = "grey85",
+      linewidth = 0.35
+    ),
+    axis.text.x = element_text(
+      angle = 90,
+      hjust = 1,
+      vjust = 0.5,
+      size = 5.5
+    ),
+    axis.text.y.right = element_text(colour = "grey35"),
+    axis.ticks.y.right = element_line(colour = "grey65")
+  )
+```
+
+The counties are ordered by their partial-pooling medians rather than alphabetically. Long connectors identify counties whose independent estimates were most sensitive to sparse data. Short connectors identify well-measured counties whose estimates change little. The duplicated y-axis ticks make the scale readable from either side of the wide figure.
+
+## 2.5 A county with no sampled homes
+
+The hierarchy also defines an estimate for a county absent from the sample. With no county information, its effect is drawn from the estimated county distribution.
+
+```{r new-county}
+new_county <- tibble(county = "NEW_COUNTY")
+
+# Draw the expected radon value for an unseen county. The new county effect is
+# sampled from the posterior distribution governed by tau.
+new_draws <- posterior_epred(
+  m_county,
+  newdata = new_county,
+  allow_new_levels = TRUE,
+  sample_new_levels = "gaussian"
+) |>
+  as.numeric()
+
+quantile(new_draws, c(.025, .5, .975))
+```
+
+The median is near the overall mean, but the interval includes uncertainty about where a new county lies in the county distribution. MRP will perform the same operation for states and demographic cells with little or no survey data.
+
+# 3. Give the counties something to be predicted by
+
+Pulling every thin county toward one overall mean is often too crude. Minnesota counties differ in soil uranium, a geological predictor of radon. The data also record whether a measurement was taken in a basement or on the first floor.
+
+- $x_{ij}=\texttt{floor}_i$ varies among homes within counties.
+- $z_j=\texttt{log\_uranium}_{j}$ varies between counties.
+
+The model becomes:
+
+$$
+\begin{aligned}
+ y_{ij}
+&\sim
+\mathcal{N}\!\left(
+  \mu+\beta x_{ij}+\gamma z_j+a_j,
+  \sigma^2
+\right),
+&& i=1,\ldots,n_j,\quad j=1,\ldots,J,\\
+a_j &\sim \mathcal{N}(0,\tau^2),\\
+\mu &\sim \operatorname{Student}\text{-}t(3,1.3,2.5),\\
+\sigma &\sim \operatorname{Student}\text{-}t^+(3,0,2.5),\\
+\beta &\sim \mathcal{N}\!\left(0,(1/s_{\texttt{floor}})^2\right),\\
+\gamma &\sim \mathcal{N}\!\left(0,(1/s_{\texttt{uranium}})^2\right),\\
+\tau &\sim \operatorname{Exponential}(2).
+\end{aligned}
+$$
+
+The county deviation $a_j$ is now centered at zero because the common intercept and predictors appear explicitly in the likelihood. Throughout, the second argument of $\mathcal N(\cdot,\cdot)$ is a variance; `brms` instead receives the corresponding standard deviation.
+
+This is the familiar linear regression $\beta_0+x_{ij}\beta+z_j\gamma$ plus a county-specific residual intercept $a_j$. The group-level SD $\tau$ now describes county variation left unexplained after accounting for the observed predictors.
+
+The expressions `1 / sd(radon$floor)` and `1 / sd(radon$log_uranium)` are fixed prior *scales*, not Jeffreys priors. They make a one-SD change in either predictor have prior effect scale of about one log-radon unit: equivalently, after dividing a predictor by its SD, its slope has a $\mathcal N(0,1^2)$ prior. Change the numerator `1` when substantive knowledge calls for a narrower or wider plausible one-SD effect.
+
+Each `set_prior()` call below creates one targeted prior specification. The object `slope_priors` simply combines the two specifications; it contains neither posterior draws nor a fitted model. `class = "b"` targets population-level slopes, and `coef` matches each prior to its named regression term.
+
+```{r uranium-priors}
+# Scale each slope prior separately so a one-SD predictor change has a comparable prior contribution to log radon.
+floor_prior_sd <- 1 / sd(radon$floor)
+uranium_prior_sd <- 1 / sd(radon$log_uranium)
+
+slope_priors <- c(
+  set_prior(
+    paste0("normal(0, ", round(floor_prior_sd, 2), ")"),
+    class = "b",
+    coef = "floor"
+  ),
+  set_prior(
+    paste0("normal(0, ", round(uranium_prior_sd, 2), ")"),
+    class = "b",
+    coef = "log_uranium"
+  )
+)
+
+slope_priors[, c("prior", "class", "coef")]
+```
+
+In `brm()`, the outer `c(...)` passed to `prior =` assembles the full prior collection. Including `slope_priors` inserts both slope-prior specifications alongside the intercept, residual-SD, and county-SD priors. This is useful whenever several predictors require their own scales; `get_prior()` can verify that every `class` and `coef` label matches the fitted formula.
+
+```{r uranium-fit, results="hide"}
+# Add one home-level predictor and one county-level predictor. County effects
+# now describe deviations left after accounting for both.
+m_uranium <- brm(
+  log_radon ~ floor + log_uranium + (1 | county),
+  data = radon,
+  family = gaussian(),
+  prior = c(
+    prior(exponential(2), class = sd),
+    prior(student_t(3, 1.3, 2.5), class = Intercept),
+    prior(student_t(3, 0, 2.5), class = sigma),
+    slope_priors
+  ),
+  chains = 4,
+  iter = 2000,
+  seed = 1010,
+  file = "models/m_uranium"
+)
+```
+
+```{r uranium-summary}
+# Check the two slopes and how much unexplained county variation remains.
+fixef(m_uranium)[c("floor", "log_uranium"), ]
+
+c(
+  tau_without_predictors =
+    VarCorr(m_county)$county$sd[, "Estimate"],
+  tau_after_predictors =
+    VarCorr(m_uranium)$county$sd[, "Estimate"]
+)
+```
+
+The uranium coefficient is positive and the floor coefficient is negative, as the scientific story suggests. More importantly, $\tau$ now describes unexplained county variation after accounting for uranium.
+
+## 3.1 Predictor-guided shrinkage
+
+```{r predictor-shrinkage-data, include=FALSE}
+uranium_intercept <- fixef(m_uranium)["Intercept", "Estimate"]
+uranium_slope <- fixef(m_uranium)["log_uranium", "Estimate"]
+
+# coef() combines the population intercept with each county deviation. Store
+# those adjusted county intercepts before adding the uranium contribution.
+county_adjusted_intercept <-
+  coef(m_uranium)$county[, "Estimate", "Intercept"]
+
+predictor_shrinkage <- county_summary |>
+  mutate(
+    predicted = uranium_intercept + uranium_slope * log_uranium,
+    adjusted =
+      county_adjusted_intercept[county] +
+      uranium_slope * log_uranium
+  )
+```
+
+```{r predictor-shrinkage, echo=FALSE, fig.height=4.6, fig.cap="Orange points are raw county means; purple points are partially pooled estimates; the blue line is the uranium prediction. Arrows show movement from the raw mean toward a predictor-specific target."}
+# Show each county moving from its raw mean toward its predictor-specific target.
+ggplot(predictor_shrinkage, aes(log_uranium, mean_lr)) +
+  geom_line(
+    aes(y = predicted),
+    colour = COL[["pred"]],
+    linewidth = 0.8
+  ) +
+  geom_segment(
+    aes(xend = log_uranium, yend = adjusted),
+    colour = "grey70",
+    linewidth = 0.35,
+    arrow = arrow(length = unit(0.04, "in"))
+  ) +
+  geom_point(
+    aes(size = n),
+    colour = COL[["raw"]],
+    alpha = 0.45
+  ) +
+  geom_point(
+    aes(y = adjusted, size = n),
+    colour = COL[["partial"]],
+    alpha = 0.9
+  ) +
+  scale_size_area(max_size = 4.5, name = "Homes") +
+  labs(
+    title = "Predictor-guided shrinkage",
+    x = "County soil uranium (log)",
+    y = "Mean log radon"
+  ) +
+  theme_primer
+```
+
+Without uranium, every county shrinks toward the statewide mean. With uranium, each county shrinks toward a point on the prediction line. This is the mechanism MRP uses when it combines individual and geographic predictors.
+
+## 3.2 Unobserved counties with known predictors
+
+```{r unseen-counties}
+unseen_counties <- tibble(
+  county = c("HIGH_URANIUM", "LOW_URANIUM"),
+  floor = 0,
+  log_uranium = c(0.7, -0.7)
+)
+
+unseen_epred <- posterior_epred(
+  m_uranium,
+  newdata = unseen_counties,
+  allow_new_levels = TRUE,
+  sample_new_levels = "gaussian"
+)
+
+# Summarise each prediction column explicitly: one column per unseen county.
+n_unseen <- nrow(unseen_counties)
+estimate <- numeric(n_unseen)
+lower <- numeric(n_unseen)
+upper <- numeric(n_unseen)
+
+for (i in 1:n_unseen) {
+  county_draws <- unseen_epred[, i]
+  estimate[i] <- median(county_draws)
+  lower[i] <- quantile(county_draws, .025)
+  upper[i] <- quantile(county_draws, .975)
+}
+
+unseen_counties |>
+  mutate(
+    estimate = estimate,
+    lower = lower,
+    upper = upper
+  ) |>
+  arrange(desc(estimate))
+```
+
+The two counties have no measured homes, but they do not receive identical estimates. Known uranium values provide different centers; the county distribution supplies uncertainty around those centers.
+
+# 4. Check the model
+
+A Bayesian workflow asks two different simulation questions:
+
+1. **Before fitting:** what data patterns do the priors consider plausible?
+2. **After fitting:** can the fitted model reproduce important features of the observed data?
+
+## 4.1 Start with the null hierarchy
+
+Check priors in the order the model is built. First ignore covariates and ask what the intercept, residual SD, and county SD imply for repeated radon datasets. This check uses the observed county labels and sample sizes, but `sample_prior = "only"` does **not** condition on the observed radon outcomes.
+
+Before looking at a sample, write down a generous working plausibility envelope on the outcome scale. For illustration, we use 0.05--100 pCi/L, or `r paste(round(log(c(0.05, 100)), 2), collapse = " to ")` on the log-radon scale. This is not a claim that values outside the envelope are mathematically impossible: the log transformation already enforces positive radon values when transformed back. It is a deliberately broad scientific guardrail. In a real application, establish the envelope from measurement limits, domain knowledge, and prior studies—not by making it match the observed outcome histogram.
+
+```{r null-prior-fit, results="hide"}
+# Simulate from the hierarchy before seeing y. Two short chains are enough for this graphical prior check
+
+m_county_prior <- brm(
+  log_radon ~ 1 + (1 | county),
+  data = radon,
+  family = gaussian(),
+  prior = c(
+    prior(student_t(3, 1.3, 2.5), class = Intercept),
+    prior(student_t(3, 0, 2.5), class = sigma),
+    prior(exponential(2), class = sd)
+  ),
+  sample_prior = "only",
+  chains = 2,
+  iter = 1000,
+  warmup = 500,
+  seed = 1010,
+  file = "models/m_county_prior"
+)
+```
+
+```{r null-prior-replicates-data, include=FALSE}
+set.seed(1010)
+n_prior_replicates <- 100
+plausible_radon <- c(lower = 0.05, upper = 100)
+plausible_log_range <- log(plausible_radon)
+
+# Each row is a complete synthetic data set from the prior-only hierarchy.
+null_prior_yrep <- posterior_predict(
+  m_county_prior,
+  ndraws = n_prior_replicates
+)
+
+# set number of simulations/replications
+sims <- 1:nrow(null_prior_yrep)
+
+# Make an empty row for each simulated data set. We fill these columns one
+# replicate at a time so that every summary has an explicit interpretation.
+
+null_prior_features <- tibble(
+  replicate = sims,
+  lower = NA,
+  middle = NA,
+  upper = NA,
+  share_outside = NA
+)
+
+for (rep_it in sims) {
+  # Step 1: take one complete simulated outcome sample.
+  y_rep <- null_prior_yrep[rep_it, ]
+
+  # Step 2: record its central 90% interval and its median.
+  null_prior_features$lower[rep_it] <- quantile(y_rep, .05)
+  null_prior_features$middle[rep_it] <- median(y_rep)
+  null_prior_features$upper[rep_it] <- quantile(y_rep, .95)
+
+  # Step 3: calculate the fraction outside the predeclared guardrail.
+  outside_guardrail <-
+    y_rep < plausible_log_range["lower"] |
+    y_rep > plausible_log_range["upper"]
+  null_prior_features$share_outside[rep_it] <-
+    mean(outside_guardrail)
+}
+
+# Order simulated data sets by their median only to make the figure easier
+# to scan; this does not alter any simulated values.
+null_prior_features <-
+  null_prior_features[order(null_prior_features$middle), ]
+null_prior_features$replicate <- seq_len(nrow(null_prior_features))
+
+# Put a manageable number of complete prior samples into a long data frame.
+# Each replicate will become one light density curve in the plot below.
+density_sims <- 1:50
+
+prior_density_data <- tibble(
+  replicate = integer(),
+  log_radon = double()
+)
+
+for (rep_it in density_sims) {
+  # Step 1: take one simulated sample selected for the density overlay.
+  y_rep <- null_prior_yrep[rep_it, ]
+
+  # Step 2: add all observations from that sample to the plotting object.
+  prior_density_data <- bind_rows(
+    prior_density_data,
+    tibble(
+      replicate = rep_it,
+      log_radon = y_rep
+    )
+  )
+}
+```
+
+```{r null-prior-replicates, echo=FALSE, fig.height=4.5, fig.cap="Light purple curves are densities of 50 complete samples generated by the null hierarchy before observing radon outcomes. The solid black curve is the observed distribution, shown as a descriptive reference rather than a target to reproduce. Dashed lines mark the predeclared, deliberately generous 0.05--100 pCi/L plausibility envelope on the log scale."}
+ggplot() +
+  geom_vline(
+    xintercept = plausible_log_range,
+    linetype = 2,
+    colour = "grey45",
+    linewidth = 0.6
+  ) +
+  geom_density(
+    data = prior_density_data,
+    aes(x = log_radon, group = replicate),
+    colour = COL[["partial"]],
+    alpha = 0.12,
+    linewidth = 0.35
+  ) +
+  geom_density(
+    data = radon,
+    aes(x = log_radon),
+    colour = COL[["truth"]],
+    linewidth = 1
+  ) +
+  coord_cartesian(
+    xlim = plausible_log_range + c(-1, 1),
+    ylim = c(0, 0.8)
+  ) +
+  labs(
+    title = "Prior-predictive outcome shapes",
+    x = "Log radon",
+    y = "Density"
+  ) +
+  theme_primer
+```
+
+Across these repeated samples, the median fraction of generated observations outside the envelope is `r scales::percent(median(null_prior_features$share_outside), accuracy = 0.1)`. There is no universal acceptable fraction: a safety-critical outcome may require nearly none, whereas a deliberately broad exploratory model may tolerate more. The discipline is to decide this before fitting. If the simulation puts too much ordinary mass outside the guardrail, tighten or recenter the intercept, residual-SD, or county-SD prior, rerun the simulation, and document the substantive reason. Do not tune priors by forcing these replications to mimic the observed sample.
+
+### A worked, scientifically elicited candidate
+
+A coherent revision begins with statements that could have been made before this outcome sample was analyzed. For illustration, suppose prior studies, measurement knowledge, or an independent pilot suggest a typical log-radon center near 1.3; residual SDs above 2 are uncommon; and county SDs above 1 are uncommon. Those statements lead to
+
+$$
+\begin{aligned}
+\mu &\sim \mathcal N(1.3,0.75^2), \\
+\sigma &\sim \operatorname{Exponential}(1.5),
+&& \Pr(\sigma>2) \approx 0.05, \\
+\tau &\sim \operatorname{Exponential}(3),
+&& \Pr(\tau>1) \approx 0.05.
+\end{aligned}
+$$
+
+The values are a worked elicitation, not universal defaults. Their scientific defensibility comes from the source of the statements, not from the fact that the simulated curves happen to look closer to this sample. In a new application, replace 1.3, 2, and 1 with values justified by external information.
+
+```{r calibrated-null-prior-fit, results="hide"}
+# Fit the same hierarchy with the elicited candidate prior only. This is a
+# separate, short simulation fit; no observed radon outcomes are used.
+m_county_prior_calibrated <- brm(
+  log_radon ~ 1 + (1 | county),
+  data = radon,
+  family = gaussian(),
+  prior = c(
+    prior(normal(1.3, 0.75), class = Intercept),
+    prior(exponential(1.5), class = sigma),
+    prior(exponential(3), class = sd)
+  ),
+  sample_prior = "only",
+  chains = 2,
+  iter = 1000,
+  warmup = 500,
+  seed = 1011,
+  file = "models/m_county_prior_calibrated"
+)
+```
+
+```{r calibrated-null-prior-data, include=FALSE}
+set.seed(1011)
+calibrated_prior_yrep <- posterior_predict(
+  m_county_prior_calibrated,
+  ndraws = n_prior_replicates
+)
+
+# Set the number of simulations/replications and make an empty result
+# object. We fill one row at a time, as in the first prior check.
+calibrated_sims <- 1:nrow(calibrated_prior_yrep)
+calibrated_prior_features <- tibble(
+  replicate = calibrated_sims,
+  share_outside = NA
+)
+
+# Select a smaller set of complete samples to draw as density curves.
+calibrated_density_sims <- 1:n_density_replicates
+calibrated_density_data <- tibble(
+  replicate = integer(),
+  log_radon = double()
+)
+
+for (rep_it in calibrated_sims) {
+  # Step 1: take one complete simulated outcome sample.
+  y_rep <- calibrated_prior_yrep[rep_it, ]
+
+  # Step 2: calculate the fraction outside the predeclared guardrail.
+  outside_guardrail <-
+    y_rep < plausible_log_range["lower"] |
+    y_rep > plausible_log_range["upper"]
+  calibrated_prior_features$share_outside[rep_it] <-
+    mean(outside_guardrail)
+
+  # Step 3: if selected, add this whole sample to the density plot data.
+  if (rep_it %in% calibrated_density_sims) {
+    calibrated_density_data <- bind_rows(
+      calibrated_density_data,
+      tibble(
+        replicate = rep_it,
+        log_radon = y_rep
+      )
+    )
+  }
+}
+```
+
+```{r calibrated-null-prior-plot, echo=FALSE, fig.height=4.5, fig.cap="Light blue curves are densities from 50 complete samples generated under the elicited candidate prior. The solid black observed density is retained only as a descriptive reference; the validity criterion is the predeclared support envelope, marked by dashed lines."}
+ggplot() +
+  geom_vline(
+    xintercept = plausible_log_range,
+    linetype = 2,
+    colour = "grey45",
+    linewidth = 0.6
+  ) +
+  geom_density(
+    data = calibrated_density_data,
+    aes(x = log_radon, group = replicate),
+    colour = COL[["pred"]],
+    alpha = 0.12,
+    linewidth = 0.35
+  ) +
+  geom_density(
+    data = radon,
+    aes(x = log_radon),
+    colour = COL[["truth"]],
+    linewidth = 1
+  ) +
+  coord_cartesian(
+    xlim = plausible_log_range + c(-1, 1),
+    ylim = c(0, 0.8)
+  ) +
+  labs(
+    title = "A calibrated prior predictive distribution",
+    x = "Log radon",
+    y = "Density"
+  ) +
+  theme_primer
+```
+
+The median fraction outside the envelope is now `r scales::percent(median(calibrated_prior_features$share_outside), accuracy = 0.1)`. This is evidence that the candidate respects the stated guardrail, not proof that it is the uniquely correct prior. A responsible analysis would also repeat the posterior fit under somewhat narrower and wider versions and report whether the substantive conclusions change.
+
+## 4.2 Add a predictor and recheck
+
+The null check cannot diagnose a slope prior. Once uranium enters the linear predictor, condition on the observed uranium range and ask what the *additional* slope term permits. A flat or extremely wide slope prior is not neutral: it can generate relationships far beyond the outcome support even if the null hierarchy was reasonable.
+
+```{r uranium-prior-fit, results="hide"}
+# Sample from the complete model before conditioning on observed radon outcomes.
+m_uranium_prior <- brm(
+  log_radon ~ floor + log_uranium + (1 | county),
+  data = radon,
+  family = gaussian(),
+  prior = c(
+    prior(exponential(2), class = sd),
+    prior(student_t(3, 1.3, 2.5), class = Intercept),
+    prior(student_t(3, 0, 2.5), class = sigma),
+    slope_priors
+  ),
+  sample_prior = "only",
+  chains = 4,
+  iter = 2000,
+  seed = 1010,
+  file = "models/m_uranium_prior"
+)
+```
+
+```{r prior-lines-data, include=FALSE}
+set.seed(1010)
+n_prior_lines <- 120
+
+# Read the weakly informative intercept and slope from the actual prior-only fit.
+prior_model_draws <- as_draws_df(m_uranium_prior) |>
+  slice_head(n = n_prior_lines)
+
+prior_intercept <- prior_model_draws$b_Intercept
+prior_slope_vague <- rnorm(n_prior_lines, 0, 100)
+prior_slope_weak <- prior_model_draws$b_log_uranium
+
+uranium_grid <- seq(
+  min(radon$log_uranium),
+  max(radon$log_uranium),
+  length.out = 40
+)
+
+# Build the two conditional mean lines implied by each intercept draw: one
+# under a deliberately vague slope prior and one under the specified prior.
+prior_lines <- tibble()
+
+for (line_id in 1:n_prior_lines) {
+  vague_line <- tibble(
+    line = line_id,
+    log_uranium = uranium_grid,
+    prior = "Vague",
+    log_radon =
+      prior_intercept[line_id] +
+      prior_slope_vague[line_id] * uranium_grid
+  )
+
+  weak_line <- tibble(
+    line = line_id,
+    log_uranium = uranium_grid,
+    prior = "Weakly informative",
+    log_radon =
+      prior_intercept[line_id] +
+      prior_slope_weak[line_id] * uranium_grid
+  )
+
+  prior_lines <- bind_rows(prior_lines, vague_line, weak_line)
+}
+```
+
+```{r prior-lines, echo=FALSE, fig.height=3.8, fig.cap="Each line is one conditional mean relationship implied by a prior draw; it isolates the intercept and uranium slope rather than adding residual or county noise. Dashed lines mark the predeclared plausibility envelope. The display is clipped to focus on the guardrail: lines leaving the panel imply more extreme values."}
+
+# Plot relationships implied before the outcome data update the slope.
+ggplot(prior_lines, aes(log_uranium, log_radon, group = line)) +
+  geom_hline(
+    yintercept = plausible_log_range,
+    linetype = 2,
+    colour = "grey55"
+  ) +
+  geom_line(
+    alpha = 0.2,
+    colour = COL[["partial"]],
+    linewidth = 0.3
+  ) +
+  facet_wrap(~ prior) +
+  coord_cartesian(ylim = plausible_log_range + c(-3, 3)) +
+  labs(
+    title = "What does the uranium slope add?",
+    x = "County soil uranium (log)",
+    y = "Log radon"
+  ) +
+  theme_primer
+```
+
+The goal is not to make every simulated line look typical. It is to preserve support for credible extremes while making clearly implausible relationships rare. Here the weakly informative slope prior is deliberately wide enough to allow positive or negative uranium associations, but it excludes the routine explosive curves admitted by the vague alternative. If the weak prior still places substantial ordinary mass outside the guardrail, lower its scale and repeat the check.
+
+## 4.3 Posterior predictive check
+
+```{r posterior-plausibility-data, include=FALSE}
+set.seed(1010)
+yrep_radon <- posterior_predict(m_uranium, ndraws = 300)
+county_rows <- split(seq_len(nrow(radon)), radon$county)
+
+observed_county_spread <- sd(county_summary$mean_lr)
+replicated_county_spread <- numeric(nrow(yrep_radon))
+
+# Reduce each replicated dataset to the between-county feature the hierarchy
+# is intended to reproduce.
+for (draw_number in seq_len(nrow(yrep_radon))) {
+  replicated_county_means <- numeric(length(county_rows))
+
+  for (county_number in seq_along(county_rows)) {
+    replicated_county_means[county_number] <- mean(
+      yrep_radon[draw_number, county_rows[[county_number]]]
+    )
+  }
+
+  replicated_county_spread[draw_number] <- sd(replicated_county_means)
+}
+```
+
+```{r posterior-check, echo=FALSE, fig.width=10.5, fig.height=3.7, fig.cap="Left: observed and replicated outcome distributions. Right: the posterior predictive distribution of the spread among county means; the dashed line is the observed spread. A model can reproduce the marginal outcome while missing the grouped structure."}
+p_outcome <- ppc_dens_overlay(
+  y = radon$log_radon,
+  yrep = yrep_radon[1:50, ]
+) +
+  labs(title = "Outcome distribution") +
+  theme_primer
+
+p_county <- tibble(spread = replicated_county_spread) |>
+  ggplot(aes(spread)) +
+  geom_density(
+    fill = COL[["partial"]],
+    colour = COL[["partial"]],
+    alpha = 0.2,
+    linewidth = 0.8
+  ) +
+  geom_vline(
+    xintercept = observed_county_spread,
+    linetype = 2,
+    colour = COL[["truth"]],
+    linewidth = 0.8
+  ) +
+  labs(
+    title = "County variation",
+    x = "SD of county means",
+    y = "Density"
+  ) +
+  theme_primer
+
+p_outcome + p_county +
+  plot_annotation(title = "Posterior plausibility") &
+  theme(plot.title = element_text(face = "bold"))
+```
+
+Posterior plausibility is feature-specific. The observed outcome distribution and county spread should both look typical among their replications. This does not prove that the model is correct, but a value in the predictive tail identifies a feature the model cannot reproduce.
+
+## 4.4 When does the group-SD prior matter?
+
+The likelihood learns $\tau$ from variation across groups. Therefore the relevant information is primarily the number of groups, not only the number of individual observations.
+
+With 85 counties, reasonable priors on $\tau$ produce very similar posterior estimates. With four or five groups, the same prior can materially influence the amount of pooling. Appendix B demonstrates the contrast without introducing a second applied dataset or a new likelihood.
+
+The MRP exercise temporarily fixes $\tau$ over a grid and compares held-out predictive fit. That curve is a sensitivity profile of the pooling trade-off, not a claim that a predictive minimum discovers the uniquely correct hyperprior. The fully Bayesian model still estimates $\tau$ under a scientifically interpretable prior.
+
+# 5. A short bridge to binary outcomes
+
+MRP commonly models a binary survey response. The multilevel structure stays the same; the likelihood and link function change.
+
+Define `high = 1` when a home's radon measurement exceeds 4 pCi/L. Then:
+
+$$
+\begin{aligned}
+y_{ij} &\sim \operatorname{Bernoulli}(p_{ij}),
+&& i=1,\ldots,n_j,\quad j=1,\ldots,J,\\
+\operatorname{logit}(p_{ij})
+  &=\alpha_j+\beta x_{ij},\\
+\alpha_j &\sim \mathcal{N}(\mu,\tau^2),\\
+\mu &\sim \mathcal{N}(0,2.5^2),\\
+\beta &\sim \mathcal{N}\!\left(0,(1/s_{\texttt{floor}})^2\right),\\
+\tau &\sim \operatorname{Exponential}(2).
+\end{aligned}
+$$
+
+Here $y_{ij}$ is the binary indicator called `high` in the code. Unlike the Gaussian model, the Bernoulli likelihood has no separate residual SD parameter: its variance is determined by $p_{ij}$. On the latent logit scale, a common approximation uses residual variance $\pi^2/3$, so a latent-scale ICC is approximately
+
+$$
+\operatorname{ICC}_{\mathrm{latent}}
+\approx
+\frac{\tau^2}{\tau^2+\pi^2/3}.
+$$
+
+This ICC is a population-level summary and is the same for every cluster under this random-intercept model. It is not the amount of pooling applied to each cluster. Cluster-specific pooling also depends on the information contributed by its $n_j$ observations. A rough latent-variable shortcut divides the residual variance by the cluster size,
+
+$$
+w_{j,\mathrm{latent}}
+\approx
+\frac{\tau^2}{\tau^2+\pi^2/(3n_j)},
+$$
+
+but this is only a teaching approximation. For the actual Bernoulli likelihood, the local information for the logit-scale intercept is approximately
+
+$$
+\mathcal I_j
+\approx
+\sum_{i=1}^{n_j}p_{ij}(1-p_{ij}),
+\qquad
+v_j\approx\mathcal I_j^{-1},
+\qquad
+w_j\approx\frac{\tau^2}{\tau^2+v_j}.
+$$
+
+Thus $n_j$ matters, but so does the predicted probability: observations near $p=0.5$ are more informative than observations near 0 or 1. In a fitted model, students can evaluate this expression for each posterior draw and cluster using the fitted $p_{ij}$ and $	au$. Unlike the Gaussian case, the weight acts approximately on the logit-scale random intercept; there is no exact probability-scale dumbbell weight because the link is nonlinear.
+
+```{r logit-fit, results="hide"}
+# Convert the continuous measurement into the binary outcome used for the
+# Bernoulli-logit example.
+radon <- radon |>
+  mutate(high = as.integer(log_radon > log(4)))
+
+# Scale the floor prior to one predictor SD, as in the Gaussian model.
+floor_prior <- set_prior(
+  paste0("normal(0, ", round(1 / sd(radon$floor), 2), ")"),
+  class = "b",
+  coef = "floor"
+)
+
+m_logit <- brm(
+  high ~ floor + (1 | county),
+  data = radon,
+  family = bernoulli(),
+  prior = c(
+    prior(exponential(2), class = sd),
+    prior(normal(0, 2.5), class = Intercept),
+    floor_prior
+  ),
+  chains = 4,
+  iter = 2000,
+  seed = 1010,
+  file = "models/m_logit"
+)
+```
+
+The coefficients are log-odds. `plogis()` transforms a log-odds value to a probability.
+
+```{r logit-probability-data, include=FALSE}
+floor_grid <- tibble(
+  floor = c(0, 1),
+  county = first(radon$county),
+  measurement = c("Basement", "First floor")
+)
+
+floor_epred <- posterior_epred(
+  m_logit,
+  newdata = floor_grid,
+  re_formula = NA
+)
+
+# Summarise the basement and first-floor prediction columns separately.
+n_floor_levels <- nrow(floor_grid)
+floor_estimate <- numeric(n_floor_levels)
+floor_lower <- numeric(n_floor_levels)
+floor_upper <- numeric(n_floor_levels)
+
+for (floor_id in 1:n_floor_levels) {
+  probability_draws <- floor_epred[, floor_id]
+  floor_estimate[floor_id] <- median(probability_draws)
+  floor_lower[floor_id] <- quantile(probability_draws, .025)
+  floor_upper[floor_id] <- quantile(probability_draws, .975)
+}
+
+floor_results <- floor_grid |>
+  mutate(
+    estimate = floor_estimate,
+    lower = floor_lower,
+    upper = floor_upper
+  ) |>
+  arrange(desc(estimate)) |>
+  mutate(measurement = factor(measurement, levels = rev(measurement)))
+```
+
+```{r logit-probability, echo=FALSE, fig.height=2.7, fig.cap="Posterior expected probabilities use the population-level intercept and floor effect; county deviations are omitted to isolate the floor comparison."}
+# Display the comparison on the probability scale rather than as log-odds.
+ggplot(floor_results, aes(estimate, measurement)) +
+  geom_linerange(
+    aes(xmin = lower, xmax = upper),
+    colour = "grey60",
+    linewidth = 0.7
+  ) +
+  geom_point(
+    colour = COL[["partial"]],
+    size = 2.6
+  ) +
+  scale_x_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1)
+  ) +
+  labs(
+    title = "High-radon probability",
+    x = "Posterior probability",
+    y = NULL
+  ) +
+  theme_primer
+```
+
+For a quick interpretation check, a logit coefficient $\beta$ can change a probability by at most approximately $\beta/4$ because the logistic curve is steepest at $p=0.5$. This is a useful upper bound, not a substitute for computing predictions on the probability scale.
+
+# 6. What carries into MRP
+
+This primer stops after fitting and checking a multilevel sample model. Poststratification begins in the next exercise, where predictions are averaged over population cells. The MRP model is larger, but its grammar is now familiar:
+
+```r
+outcome ~ individual_predictors + geographic_predictors +
+  (1 | state) + (1 | demographic_group) + ...
+```
+
+| Idea from this primer | Role in MRP |
+|:--|:--|
+| `(1 | group)` | partial pooling across states and demographic cells |
+| posterior draws | population weighting is performed within every draw |
+| group-level predictors | prediction for thin and unsampled states |
+| prior predictive checks | assess coefficient and group-SD priors before fitting |
+| posterior predictive checks | assess whether the survey outcome model is adequate |
+| Bernoulli likelihood and logit link | model binary survey responses |
+| `lmer` benchmark | separate the consequences of pooling from the consequences of prior choice |
+
+The important conceptual move is not the size of the formula. MRP fits a multilevel outcome model, predicts every population cell, and averages those predictions using known population counts.
+
+Before moving on, be able to answer:
+
+1. Why do small groups shrink more than large groups?
+2. What is the difference between $\sigma$ and $\tau$?
+3. What changes when a group-level predictor enters the model?
+4. Why can the model predict an unsampled group?
+5. Why might a prior on $\tau$ matter more with four groups than with eighty-five?
+
+# Appendix A. The closed-form shrinkage calculation
+
+This appendix is optional. It connects the Bayesian model to the empirical-Bayes calculation returned by `lmer()`.
+
+```{r lmer-fit}
+# Reuse the lmer benchmark and expose the quantities that determine shrinkage.
+variance_parts <- as.data.frame(VarCorr(m_lmer))
+tau_lmer <- variance_parts$sdcor[variance_parts$grp == "county"]
+sigma_lmer <- variance_parts$sdcor[variance_parts$grp == "Residual"]
+mu_lmer <- fixef(m_lmer)[["(Intercept)"]]
+
+c(mu = mu_lmer, tau = tau_lmer, sigma = sigma_lmer)
+```
+
+Conditional on the estimated variance components,
+
+$$
+\widehat{\alpha}_j
+=
+\mu
++
+\frac{\tau^2}{\tau^2+\sigma^2/n_j}
+(\bar y_j-\mu).
+$$
+
+```{r empirical-bayes-check}
+# Reconstruct every county estimate from the closed-form pooling weight and
+# verify that it agrees with lmer.
+eb_check <- county_summary |>
+  mutate(
+    theta =
+      tau_lmer^2 /
+      (tau_lmer^2 + sigma_lmer^2 / n),
+    by_hand =
+      mu_lmer + theta * (mean_lr - mu_lmer),
+    by_lmer =
+      coef(m_lmer)$county[county, "(Intercept)"]
+  )
+
+max(abs(eb_check$by_hand - eb_check$by_lmer))
+```
+
+The equality makes the mechanism transparent: $n_j$, $\sigma$, and $\tau$ jointly determine how much of the raw county deviation is retained.
+
+```{r shrinkage-weight, echo=FALSE, fig.height=3.5, fig.cap="The curve holds the fitted variance components fixed. Orange points are the 85 observed counties at their actual sample sizes and implied pooling weights; points are jittered slightly when counties have the same number of homes."}
+# Overlay the observed counties on the theoretical sample-size relationship.
+shrinkage_curve <- tibble(n = 1:120) |>
+  mutate(
+    theta =
+      tau_lmer^2 /
+      (tau_lmer^2 + sigma_lmer^2 / n)
+  )
+
+ggplot(shrinkage_curve, aes(n, theta)) +
+  geom_line(
+    colour = COL[["partial"]],
+    linewidth = 0.9
+  ) +
+  geom_point(
+    data = eb_check,
+    aes(n, theta),
+    position = position_jitter(width = 0.45, height = 0, seed = 1010),
+    shape = 21,
+    fill = COL[["raw"]],
+    colour = "white",
+    stroke = 0.35,
+    size = 2.2,
+    alpha = 0.85
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1)
+  ) +
+  labs(
+    title = "Sample size controls pooling",
+    x = "Homes measured in county",
+    y = "Weight on county mean"
+  ) +
+  theme_primer
+```
+
+Counties with the same sample size receive the same weight because this model assumes one common within-county variance. The left-hand cluster of observed counties makes clear why most county estimates are pulled substantially toward the shared regression prediction.
+
+# Appendix B. Priors for variance components
+
+The partial-pooling model contains a distribution for the county deviations,
+
+$$
+a_j \sim \mathcal{N}(0,\tau^2).
+$$
+
+The parameter $\tau$ is the **group standard deviation** and $\tau^2$ is the group variance. A prior on $\tau$ is already a **hyperprior**: it governs a parameter of the distribution from which the county effects are drawn. In practice, it is usually clearer to place this prior on $\tau$ rather than directly on $\tau^2$, because $\tau$ is measured in the same units as the outcome and the group effects.
+
+The distinction matters because a prior that is flat on one scale is not flat after transformation. For example,
+
+$$
+p(\tau)\propto 1
+\quad\Longrightarrow\quad
+p(\tau^2)\propto \frac{1}{\tau},
+$$
+
+so “flat” is not a parameterization-free idea.
+
+### A practical selection workflow
+
+Prior selection for a variance component is a sequence of scale decisions rather than a contest between named distributions. First choose the parameterization: a prior on $\tau$ is usually easier to explain because it has the same units as the group effects, whereas a prior on $\tau^2$ is expressed in squared outcome units. Next state a tail belief such as $\Pr(\tau>U)=\alpha$, where $U$ is a substantively large group difference and $\alpha$ is a small probability. Finally, simulate the implied group effects and outcomes before fitting; reject any prior that generates implausible predictions, even if its label is called “weakly informative.” Appendix B.3 shows how to calibrate the scale of several proper priors from this tail statement.
+
+The number of groups also matters. With only a few groups, the likelihood contains little information about $\tau$, so Jeffreys-type or flat reference priors can produce materially different posteriors. With many well-measured groups, proper alternatives often give similar answers because the likelihood is more informative. Prior sensitivity is therefore a diagnostic of how much the data identify the between-group variance, not a nuisance to hide.
+
+Sections B.1–B.2 support the core discussion of variance priors. Sections B.3–B.6 are optional reference material for hyperprior calibration, implementation, and model comparison.
+
+## B.1 Common choices
+
+| Prior on $\tau>0$ | Main behavior | Practical comment |
+|:--|:--|:--|
+| Jeffreys-type, $p(\tau)\propto 1/\tau$ | scale invariant; infinite mass toward zero | improper and can yield an improper posterior for a hierarchical SD |
+| Flat, $p(\tau)\propto 1$ | does not favor a value on the SD scale; heavy implicit tail | improper; can overestimate $\tau$ when there are few groups |
+| Half-normal, $\mathcal{N}^+(0,A^2)$ | concentrated near zero with a light tail | useful when very large group differences are implausible |
+| Half-$t$, $t_\nu^+(0,A)$ | peak near zero with a heavier tail | permits occasional large heterogeneity; half-Cauchy is $\nu=1$ |
+| Half-Cauchy, $t_1^+(0,A)$ | extremely heavy right tail | robust default candidate when large heterogeneity is possible, but can be too permissive in small samples |
+| Exponential, $\operatorname{Exponential}(\lambda)$ | maximum at zero and a single interpretable tail rate | convenient for regularization and tail-probability calibration |
+| Inverse-Gamma on $V=\tau^2$, $\operatorname{IG}(a,b)$ | prior on the squared scale with a polynomial upper tail | historically common, but sensitive to $a,b$ and difficult to interpret as a “vague” prior |
+
+The half-Cauchy is usually meant as a prior on a positive SD, not an unrestricted Cauchy prior on a variance. If $\tau\sim\operatorname{Half\text{-}Cauchy}(0,A)$, the scale $A$ is in outcome units and controls how much prior mass lies on very large group differences. Its heavy tail can be useful protection against over-shrinking, but in a small-group problem it can also allow implausibly large effects and create weakly identified or computationally difficult posteriors.
+
+For an inverse-Gamma variance prior, $V=\tau^2\sim\operatorname{IG}(a,b)$ has kernel
+
+$$
+p(V)\propto V^{-(a+1)}\exp\left(-\frac{b}{V}\right),\qquad V>0.
+$$
+
+Its mean is $b/(a-1)$ only when $a>1$, and its variance is finite only when $a>2$. Small-shape choices can combine a sharp boundary near zero with a very long upper tail, so values such as $0.001$ are not neutral defaults. If an inverse-Gamma prior is used, report the implied median and tail probabilities for $\tau=\sqrt V$ and compare them with SD-scale priors. Modern Stan workflows more often use a proper half-normal, half-$t$, or exponential prior on the SD itself because the scale is easier to calibrate and communicate. [Gelman (2006)](https://sites.stat.columbia.edu/gelman/bayescomputation/Gelman2006.pdf) develops the half-$t$ family and shows why variance-prior choices become consequential with few groups. Current [brms documentation](https://paulbuerkner.com/brms/reference/set_prior.html) uses a half-Student-$t$ default for group SDs and permits a prior to be targeted with `class = "sd"`; a prior specified for that class acts on the SD parameter, not automatically on its square.
+
+The following curves use a common scale of 0.5. Equal scale parameters do not imply equal tail probabilities: the half-Cauchy leaves far more probability on large values than the half-normal.
+
+```{r proper-sd-priors-data, include=FALSE}
+tau_prior_grid <- seq(0, 2.5, length.out = 1200)
+
+# Evaluate four proper SD priors on the same tau grid. Doubling the Normal,
+# t, or Cauchy density converts its positive half into a full density.
+proper_sd_priors <- bind_rows(
+  tibble(
+    tau = tau_prior_grid,
+    density = 2 * dnorm(tau, 0, 0.5),
+    prior = "Half-normal(0, 0.5)"
+  ),
+  tibble(
+    tau = tau_prior_grid,
+    density = 2 * dt(tau / 0.5, df = 4) / 0.5,
+    prior = "Half-t(4, 0, 0.5)"
+  ),
+  tibble(
+    tau = tau_prior_grid,
+    density = dexp(tau, rate = 2),
+    prior = "Exponential(2)"
+  ),
+  tibble(
+    tau = tau_prior_grid,
+    density = 2 * dcauchy(tau, 0, 0.5),
+    prior = "Half-Cauchy(0, 0.5)"
+  )
+) |>
+  mutate(
+    prior = factor(
+      prior,
+      levels = c(
+        "Half-normal(0, 0.5)",
+        "Half-t(4, 0, 0.5)",
+        "Exponential(2)",
+        "Half-Cauchy(0, 0.5)"
+      )
+    )
+  )
+```
+
+```{r proper-sd-priors, echo=FALSE, fig.height=3.4, fig.cap="All four priors are proper and have a mode at zero, but their right tails differ substantially. The scale must be interpreted relative to the outcome."}
+# Compare prior shapes before using any group estimates.
+ggplot(
+  proper_sd_priors,
+  aes(tau, density, colour = prior)
+) +
+  geom_line(linewidth = 0.9) +
+  scale_colour_manual(
+    values = c(
+      "Half-normal(0, 0.5)" = "#D97706",
+      "Half-t(4, 0, 0.5)" = "#6D28D9",
+      "Exponential(2)" = "#1B9E77",
+      "Half-Cauchy(0, 0.5)" = "#2563A5"
+    )
+  ) +
+  coord_cartesian(xlim = c(0, 2.25)) +
+  labs(
+    title = "Common priors for a group SD",
+    x = expression(tau),
+    y = NULL,
+    colour = NULL
+  ) +
+  theme_primer
+```
+
+No member of this menu is automatically weakly informative. A half-normal with $A=10$ can be extremely weak on a standardized outcome; a half-normal with $A=0.05$ can be strongly informative. “Weak” describes the prior relative to the likelihood, outcome scale, and scientific question.
+
+## B.2 Jeffreys, flat, and weakly informative priors
+
+A Jeffreys prior is derived from the Fisher information of a particular likelihood. For a pure scale parameter, the familiar scale-invariant form is
+
+$$
+p(\tau)\propto \frac{1}{\tau}.
+$$
+
+In a hierarchical model, however, $\tau$ is not simply the scale of directly observed Normal data. Calling $1/\tau$ “the Jeffreys prior” is therefore a convenient reference rather than a universal result. More importantly, the density is improper and diverges at zero. If the hierarchical likelihood remains finite at $\tau=0$, the posterior can also be improper.
+
+To see the sensitivity, suppose we observe noisy estimates of group effects:
+
+$$
+\widehat a_j
+\sim
+\mathcal{N}\!\left(0,\tau^2+s_j^2\right),
+$$
+
+where $s_j$ is known. We compare:
+
+$$
+\begin{aligned}
+p_J(\tau) &\propto 1/\tau,
+&&\text{Jeffreys-type reference},\\
+p_F(\tau) &\propto 1,
+&&\text{flat on the SD},\\
+\tau &\sim \mathcal{N}^+(0,0.5^2),
+&&\text{proper weakly informative prior}.
+\end{aligned}
+$$
+
+The simulation uses a modest true group SD, $\tau=0.15$, because reference priors are most consequential when heterogeneity is small and the number of groups is limited. The Jeffreys-type curve is truncated at $\tau=0.005$ only so that it can be drawn. Its apparent posterior is cutoff-dependent and must not be treated as a valid probability distribution.
+
+```{r group-sd-sensitivity-data, include=FALSE}
+set.seed(1010)
+
+# Simulate the same underlying heterogeneity under two group counts. Each
+# observed group estimate also contains sampling error with SD 0.15.
+true_tau <- 0.15
+group_standard_error <- 0.15
+
+true_effect_few <- rnorm(4, 0, true_tau)
+few_groups <- tibble(
+  estimate = rnorm(
+    4,
+    mean = true_effect_few,
+    sd = group_standard_error
+  ),
+  se = group_standard_error
+)
+
+true_effect_many <- rnorm(85, 0, true_tau)
+many_groups <- tibble(
+  estimate = rnorm(
+    85,
+    mean = true_effect_many,
+    sd = group_standard_error
+  ),
+  se = group_standard_error
+)
+
+tau_grid <- seq(0.005, 1.5, length.out = 1600)
+tau_step <- tau_grid[2] - tau_grid[1]
+
+# The Jeffreys-type and flat entries are unnormalized reference densities.
+comparison_priors <- list(
+  "Jeffreys-type: 1/tau" = 1 / tau_grid,
+  "Flat on tau" = rep(1, length(tau_grid)),
+  "Weak: half-normal(0, 0.5)" =
+    2 * dnorm(tau_grid, 0, 0.5)
+)
+
+# tau_posterior_grid: Evaluate a posterior density over a fixed tau grid.
+# Args:
+#   group_data — observed group estimates and their standard errors
+#   label      — label identifying the group-count scenario
+# Returns: one row per tau value and prior
+tau_posterior_grid <- function(group_data, label) {
+  # Step 1: calculate the likelihood at every candidate tau value.
+  log_likelihood <- numeric(length(tau_grid))
+
+  for (tau_id in 1:length(tau_grid)) {
+    tau_value <- tau_grid[tau_id]
+    marginal_sd <- sqrt(tau_value^2 + group_data$se^2)
+
+    log_likelihood[tau_id] <- sum(
+      dnorm(
+        group_data$estimate,
+        mean = 0,
+        sd = marginal_sd,
+        log = TRUE
+      )
+    )
+  }
+
+  # Step 2: multiply that likelihood by each prior and normalize the curve.
+  posterior_output <- tibble()
+  prior_names <- names(comparison_priors)
+
+  for (prior_id in 1:length(prior_names)) {
+    prior_name <- prior_names[prior_id]
+    prior_density <- comparison_priors[[prior_name]]
+
+    log_posterior <- log(prior_density) + log_likelihood
+
+    # Subtracting the maximum prevents exponentiation from overflowing.
+    log_posterior <- log_posterior - max(log_posterior)
+    posterior_kernel <- exp(log_posterior)
+    normalizing_constant <- sum(posterior_kernel) * tau_step
+
+    one_prior <- tibble(
+      tau = tau_grid,
+      density = posterior_kernel / normalizing_constant,
+      prior = prior_name,
+      groups = label
+    )
+
+    posterior_output <- bind_rows(posterior_output, one_prior)
+  }
+
+  posterior_output
+}
+
+# Run the same calculation once with four groups and once with eighty-five.
+tau_sensitivity <- bind_rows(
+  tau_posterior_grid(few_groups, "4 groups"),
+  tau_posterior_grid(many_groups, "85 groups")
+) |>
+  mutate(
+    groups = factor(groups, levels = c("4 groups", "85 groups")),
+    prior = factor(
+      prior,
+      levels = c(
+        "Jeffreys-type: 1/tau",
+        "Flat on tau",
+        "Weak: half-normal(0, 0.5)"
+      )
+    )
+  )
+```
+
+```{r group-sd-sensitivity, echo=FALSE, fig.height=3.7, fig.cap="The Jeffreys-type curve is a truncated, cutoff-dependent approximation because 1/τ is improper. With four groups, the reference priors produce sharply different answers. With eighty-five groups, the proper flat and weakly informative results nearly coincide because the likelihood is informative."}
+# Hold the data-generating process fixed and compare posterior sensitivity.
+ggplot(
+  tau_sensitivity,
+  aes(tau, density, colour = prior)
+) +
+  geom_line(linewidth = 0.9) +
+  facet_wrap(~ groups, scales = "free_y") +
+  scale_colour_manual(
+    values = c(
+      "Jeffreys-type: 1/tau" = "#B91C1C",
+      "Flat on tau" = "#D97706",
+      "Weak: half-normal(0, 0.5)" = "#6D28D9"
+    )
+  ) +
+  coord_cartesian(xlim = c(0, 0.8)) +
+  labs(
+    title = "Prior sensitivity depends on group count",
+    x = expression(tau),
+    y = NULL,
+    colour = NULL
+  ) +
+  theme_primer
+```
+
+```{r group-sd-sensitivity-summary}
+# grid_quantile: Read a quantile from a posterior density evaluated on a grid.
+# Args:
+#   tau     — candidate tau values
+#   density — normalized posterior density at each value
+#   prob    — requested cumulative probability
+# Returns: the first tau value whose cumulative probability reaches prob
+grid_quantile <- function(tau, density, prob) {
+  cumulative_probability <- cumsum(density)
+  cumulative_probability <-
+    cumulative_probability / sum(density)
+  quantile_index <- which(cumulative_probability >= prob)[1]
+
+  tau[quantile_index]
+}
+
+tau_sensitivity |>
+  group_by(groups, prior) |>
+  summarise(
+    median_tau = grid_quantile(tau, density, .5),
+    lower = grid_quantile(tau, density, .025),
+    upper = grid_quantile(tau, density, .975),
+    .groups = "drop"
+  )
+```
+
+Three conclusions matter.
+
+1. The Jeffreys-type result is not merely “more skeptical.” It is mathematically unstable here because the answer changes when the arbitrary lower cutoff is changed.
+2. A flat prior on $\tau$ is not neutral. Its long tail gives substantial weight to large heterogeneity and therefore less pooling.
+3. A proper weakly informative prior supplies the small amount of information that four groups cannot provide. With many groups, reasonable proper priors usually converge to nearly the same posterior.
+
+## B.3 Fine-tuning a hyperprior (optional)
+
+The scale $A$ or rate $\lambda$ is a **hyperparameter**. It should be chosen through an interpretable statement, not because 0.5 or 2 is a familiar-looking number.
+
+One useful statement is:
+
+> Before seeing the data, I assign only probability $\alpha$ that the between-group SD exceeds an upper value $U$.
+
+That is,
+
+$$
+\Pr(\tau>U)=\alpha.
+$$
+
+This tail statement determines the prior scale:
+
+$$
+\begin{aligned}
+\tau\sim\operatorname{Exponential}(\lambda)
+&:
+\lambda=-\log(\alpha)/U,\\
+\tau\sim\mathcal{N}^+(0,A^2)
+&:
+A=U/\Phi^{-1}(1-\alpha/2),\\
+\tau\sim t_\nu^+(0,A)
+&:
+A=U/t_\nu^{-1}(1-\alpha/2).
+\end{aligned}
+$$
+
+For example, suppose a between-county SD above one log-radon unit is possible but unlikely, with prior probability 5%.
+
+```{r calibrate-hyperprior}
+# calibrate_sd_priors: Convert a tail statement into prior parameters.
+# Args:
+#   U     — upper value for tau
+#   alpha — desired prior probability that tau exceeds U
+#   df    — degrees of freedom for the half-t option
+# Returns: one calibrated rate or scale for each prior family
+calibrate_sd_priors <- function(U, alpha = .05, df = 4) {
+  tibble(
+    prior = c(
+      "Exponential",
+      "Half-normal",
+      paste0("Half-t, df = ", df),
+      "Half-Cauchy"
+    ),
+    hyperparameter = c(
+      -log(alpha) / U,
+      U / qnorm(1 - alpha / 2),
+      U / qt(1 - alpha / 2, df = df),
+      U / qt(1 - alpha / 2, df = 1)
+    ),
+    meaning = c("rate lambda", "scale A", "scale A", "scale A")
+  )
+}
+
+calibrated_priors <- calibrate_sd_priors(U = 1, alpha = .05)
+calibrated_priors
+```
+
+The same tail probability does not make the distributions identical. Their behavior near zero and in the far tail still differs. Push them through the shrinkage formula to see what they imply for a two-home county.
+
+```{r calibrated-prior-implications-data, include=FALSE}
+set.seed(1010)
+n_prior_draws <- 50000
+
+# Read the calibrated rate or scale by its prior name.
+exp_rate <- calibrated_priors$hyperparameter[
+  calibrated_priors$prior == "Exponential"
+]
+hn_scale <- calibrated_priors$hyperparameter[
+  calibrated_priors$prior == "Half-normal"
+]
+ht_scale <- calibrated_priors$hyperparameter[
+  calibrated_priors$prior == "Half-t, df = 4"
+]
+hc_scale <- calibrated_priors$hyperparameter[
+  calibrated_priors$prior == "Half-Cauchy"
+]
+
+# Draw tau directly from each calibrated prior. abs() folds a symmetric
+# Normal or t distribution onto the positive SD scale.
+calibrated_draws <- bind_rows(
+  tibble(
+    tau = rexp(n_prior_draws, rate = exp_rate),
+    prior = "Exponential"
+  ),
+  tibble(
+    tau = abs(rnorm(n_prior_draws, 0, hn_scale)),
+    prior = "Half-normal"
+  ),
+  tibble(
+    tau = abs(rt(n_prior_draws, df = 4)) * ht_scale,
+    prior = "Half-t(4)"
+  ),
+  tibble(
+    tau = abs(rt(n_prior_draws, df = 1)) * hc_scale,
+    prior = "Half-Cauchy"
+  )
+) |>
+  mutate(
+    # Translate each tau draw into two familiar pooling quantities.
+    sigma = median(draws_county$sigma),
+    icc = tau^2 / (tau^2 + sigma^2),
+    theta_n2 = tau^2 / (tau^2 + sigma^2 / 2),
+    prior = factor(
+      prior,
+      levels = c(
+        "Exponential",
+        "Half-normal",
+        "Half-t(4)",
+        "Half-Cauchy"
+      )
+    )
+  )
+```
+
+```{r calibrated-prior-implications, echo=FALSE, fig.height=3.8, fig.cap="All four proper priors satisfy P(τ > 1) = 0.05. The panels show the implied prior weight on a two-home county's own mean. Matching one tail probability does not erase differences in prior shape."}
+# Compare what the calibrated priors imply for shrinkage before fitting.
+ggplot(calibrated_draws, aes(theta_n2)) +
+  geom_density(
+    fill = COL[["partial"]],
+    colour = COL[["partial"]],
+    alpha = 0.18,
+    linewidth = 0.7
+  ) +
+  facet_wrap(~ prior, ncol = 2) +
+  scale_x_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1)
+  ) +
+  labs(
+    title = "Prior pooling for a two-home county",
+    x = "Weight on the county mean",
+    y = NULL
+  ) +
+  theme_primer
+```
+
+A defensible tuning workflow is:
+
+1. Put the outcome on an interpretable scale.
+2. State a plausible upper bound $U$ for between-group differences.
+3. Choose a small tail probability $\alpha$.
+4. Solve for the rate or scale.
+5. inspect implications for group differences, ICC, shrinkage, and simulated outcomes.
+6. Refit under two or three nearby proper priors and report whether substantive conclusions change.
+
+An exponential prior can also be calibrated as $\lambda=-\log(\alpha)/U$. This is the form used by a common penalized-complexity prior for a Gaussian random-effect SD: the base model is $\tau=0$, and larger departures receive exponentially decreasing support. The broader [PC-prior framework](https://projecteuclid.org/journals/statistical-science/volume-32/issue-1/Penalising-Model-Component-Complexity--A-Principled-Practical-Approach-to/10.1214/16-STS576.full) is developed by Simpson et al. (2017).
+
+## B.4 Implementing alternative hyperpriors in brms (optional code)
+
+brms knows that an `sd` parameter is nonnegative, so `normal(0, A)` on `class = "sd"` becomes a half-normal automatically. The following optional code fits the same likelihood under three proper hyperpriors.
+
+```{r fit-hyperprior-menu, eval=FALSE}
+# fit_county_sd_prior: Refit the county model under one SD hyperprior.
+# Args:
+#   sd_prior  — brms prior targeted to class = "sd"
+#   cache_file — path used to save or reload the fitted model
+# Returns: a brmsfit object
+fit_county_sd_prior <- function(sd_prior, cache_file) {
+  brm(
+    log_radon ~ 1 + (1 | county),
+    data = radon,
+    family = gaussian(),
+    prior = sd_prior,
+    chains = 4,
+    iter = 2000,
+    seed = 1010,
+    file = cache_file
+  )
+}
+
+m_sd_half_normal <- fit_county_sd_prior(
+  prior(normal(0, 0.51), class = sd, group = "county"),
+  "models/m_county_half_normal"
+)
+
+m_sd_half_t <- fit_county_sd_prior(
+  prior(student_t(4, 0, 0.36), class = sd, group = "county"),
+  "models/m_county_half_t"
+)
+
+m_sd_exponential <- fit_county_sd_prior(
+  prior(exponential(3), class = sd, group = "county"),
+  "models/m_county_exponential"
+)
+```
+
+The numerical values above approximately encode $\Pr(\tau>1)=0.05$. They are examples, not defaults. Change $U$ and $\alpha$ to match the outcome and substantive application. Use `get_prior()` before fitting to verify which `class`, `group`, and `coef` the prior targets.
+
+## B.5 Learning the hyperprior scale (instructor extension)
+
+It is possible to add another hierarchical level:
+
+$$
+\begin{aligned}
+a_{jk} &\sim \mathcal{N}(0,\tau_k^2),\\
+\tau_k &\sim \mathcal{N}^+(0,A^2),\\
+A &\sim \mathcal{N}^+(0,1).
+\end{aligned}
+$$
+
+Here $k$ indexes several variance components and $A$ is learned from their distribution. In Stan, the central part of the model would look like:
+
+```stan
+parameters {
+  vector<lower=0>[K] tau;
+  real<lower=0> A;
+}
+model {
+  A ~ normal(0, 1);
+  tau ~ normal(0, A);
+}
+```
+
+This extension needs several plausibly exchangeable variance components. Learning $A$ from a single $\tau$ merely moves an already weakly identified problem up one level. In an MRP model, state, education, ethnicity, and interaction SDs may have very different substantive meanings, so a common hyperprior is not automatically justified.
+
+The ordinary brms `prior()` interface treats $A$ as fixed. Sharing an unknown $A$ across several `sd` parameters generally requires custom Stan code, for example through `cmdstanr`. It should be introduced only when the additional pooling across variance components is part of the scientific model.
+
+## B.6 Goodness of fit and comparison across priors (reference)
+
+Different tools answer different questions.
+
+| Tool | Question | Role in prior sensitivity |
+|:--|:--|:--|
+| Prior predictive check | What datasets are plausible before observing $y$? | primary tool for rejecting absurd hyperpriors |
+| Posterior predictive check | Can the fitted model reproduce important data features? | assesses absolute model adequacy |
+| PSIS-LOO / ELPD | How well does the model predict held-out observations? | compares predictive performance, with uncertainty |
+| WAIC | Approximate expected out-of-sample prediction | older alternative; PSIS-LOO is generally preferred |
+| Bayesian $R^2$ | How much fitted variation is explained? | descriptive summary, not a general selection criterion |
+| Bayes factor | How much marginal evidence favors one complete model? | requires proper priors and is deliberately prior-sensitive |
+
+For models that differ only in a reasonable hyperprior, start with prior predictive checks and compare the posterior of $\tau$, the county estimates, and the scientific estimand. Then examine predictive fit:
+
+```{r compare-hyperpriors, eval=FALSE}
+# Estimate held-out predictive accuracy separately for each proper hyperprior.
+loo_hn <- loo(m_sd_half_normal)
+loo_ht <- loo(m_sd_half_t)
+loo_exp <- loo(m_sd_exponential)
+
+loo_compare(
+  half_normal = loo_hn,
+  half_t = loo_ht,
+  exponential = loo_exp
+)
+
+# A comparison is trustworthy only when the PSIS diagnostic is acceptable.
+pareto_k_table(loo_hn)
+
+# Predictive criteria complement, rather than replace, absolute fit summaries.
+pp_check(m_sd_half_normal, type = "dens_overlay")
+bayes_R2(m_sd_half_normal)
+```
+
+`loo_compare()` reports differences in expected log predictive density (`elpd_diff`) and the standard error of each difference (`se_diff`). A small ELPD difference relative to its standard error is not evidence that one prior is better. It says the models make predictively similar claims.
+
+PSIS-LOO should also be read with its Pareto-$k$ diagnostics. Large values mean that the approximation is unstable and may require moment matching, exact refitting, or $K$-fold cross-validation. Vehtari, Gelman, and Gabry show that PSIS-LOO is more robust than WAIC in finite samples with weak priors or influential observations ([paper](https://arxiv.org/abs/1507.04544); [loo documentation](https://mc-stan.org/loo/reference/loo_compare)).
+
+For a multilevel model, the held-out unit must match the prediction task. Ordinary observation-level LOO asks how well the model predicts a new home in a county represented in the remaining data. If the goal is prediction for a new county, hold out whole counties:
+
+```{r grouped-cross-validation, eval=FALSE}
+# Keep whole counties together in folds when the target is a new county rather
+# than another home from a county already represented in the training data.
+kfold_new_county <- kfold(
+  m_sd_half_normal,
+  K = 10,
+  folds = "grouped",
+  group = "county"
+)
+```
+
+Grouped $K$-fold refits the model repeatedly and is therefore expensive, but it answers the relevant new-group question.
+
+Finally, do not tune a prior solely to maximize LOO. A hyperprior is part of the generative model and should be scientifically defensible before seeing the outcome. Predictive comparison can reveal consequences, not manufacture prior knowledge. Bayes factors are even more sensitive to prior scale and cannot be computed meaningfully with the improper Jeffreys-type or flat priors discussed above.
+
+# Appendix C. MCMC convergence and $\widehat R$
+
+Markov chain Monte Carlo approximates a posterior with several chains. After warmup, let $\theta_{nm}$ be draw $n=1,\ldots,N$ from chain $m=1,\ldots,M$. A convergence diagnostic asks whether the chains look like independent samples from the same target distribution, rather than merely whether each chain has produced many iterations.
+
+For intuition, the original split-$\widehat R$ calculation compares variation within chains to variation among chain means. Let
+
+$$
+\bar\theta_m=\frac{1}{N}\sum_{n=1}^{N}\theta_{nm},
+\qquad
+\bar\theta=\frac{1}{M}\sum_{m=1}^{M}\bar\theta_m,
+$$
+
+$$
+W=\frac{1}{M}\sum_{m=1}^{M}s_m^2,
+\qquad
+B=\frac{N}{M-1}\sum_{m=1}^{M}(\bar\theta_m-\bar\theta)^2,
+$$
+
+where $s_m^2$ is the variance inside chain $m$. The overdispersed variance estimate and diagnostic are
+
+$$
+\widehat{\operatorname{Var}}^{+}(\theta)
+=
+\frac{N-1}{N}W+\frac{1}{N}B,
+\qquad
+\widehat R
+=
+\sqrt{\frac{\widehat{\operatorname{Var}}^{+}(\theta)}{W}}.
+$$
+
+If chains explore the same distribution, their means agree and $B$ is compatible with $W$, so $\widehat R$ approaches one. If chains stay in different regions, $B$ is large relative to $W$ and $\widehat R>1$. Stan and `brms` report a stricter modern diagnostic: the maximum of rank-normalized split and folded-split $\widehat R$, which also detects some scale differences. As a practical rule, inspect any parameter with $\widehat R>1.01$; a value near one is necessary but does not prove that a model is adequate. See Stan’s [diagnostics guide](https://mc-stan.org/learn-stan/diagnostics-warnings.html) for the current recommendation.
+
+```{r rhat-example-data, include=FALSE}
+# This illustration simulates draws only; it does not fit a model.
+set.seed(2026)
+n_iterations <- 300
+n_chains <- 4
+
+# Four chains sampling the same distribution.
+good_chains <- matrix(
+  rnorm(n_iterations * n_chains, mean = 0, sd = 1),
+  nrow = n_iterations,
+  ncol = n_chains
+)
+colnames(good_chains) <- paste0("chain_", seq_len(n_chains))
+
+# Four chains trapped in different regions of the parameter space.
+bad_centers <- c(-1.5, -0.5, 0.5, 1.5)
+bad_chains <- matrix(nrow = n_iterations, ncol = n_chains)
+
+for (chain_number in seq_len(n_chains)) {
+  bad_chains[, chain_number] <- rnorm(
+    n_iterations,
+    mean = bad_centers[chain_number],
+    sd = 1
+  )
+}
+colnames(bad_chains) <- paste0("chain_", seq_len(n_chains))
+
+# Textbook R-hat: transparent algebra for the equations above. The posterior
+# package calculation below is the modern rank-normalized split version.
+rhat_classic <- function(draws) {
+  draws_per_chain <- nrow(draws)
+  within_variance <- mean(apply(draws, 2, var))
+  between_variance <- draws_per_chain * var(colMeans(draws))
+  variance_plus <-
+    ((draws_per_chain - 1) / draws_per_chain) * within_variance +
+    between_variance / draws_per_chain
+  sqrt(variance_plus / within_variance)
+}
+
+rhat_examples <- tibble(
+  example = c("Well mixed", "Separated chains"),
+  classic_rhat = c(rhat_classic(good_chains), rhat_classic(bad_chains)),
+  rank_normalized_rhat = c(
+    posterior::rhat(good_chains),
+    posterior::rhat(bad_chains)
+  )
+)
+
+rhat_good <- rhat_examples$rank_normalized_rhat[rhat_examples$example == "Well mixed"]
+rhat_bad <- rhat_examples$rank_normalized_rhat[rhat_examples$example == "Separated chains"]
+
+good_trace_data <- as_tibble(good_chains, .name_repair = "minimal") |>
+  mutate(iteration = seq_len(n_iterations)) |>
+  pivot_longer(-iteration, names_to = "chain", values_to = "draw") |>
+  mutate(example = "Well mixed")
+
+bad_trace_data <- as_tibble(bad_chains, .name_repair = "minimal") |>
+  mutate(iteration = seq_len(n_iterations)) |>
+  pivot_longer(-iteration, names_to = "chain", values_to = "draw") |>
+  mutate(example = "Separated chains")
+
+trace_data <- bind_rows(good_trace_data, bad_trace_data) |>
+  mutate(chain = factor(chain))
+```
+
+```{r rhat-example, echo=FALSE, fig.height=5.2, fig.cap="Synthetic trace plots, generated without fitting a model. In the upper panel the four chains overlap (rank-normalized split R-hat = `r round(rhat_good, 2)`). In the lower panel, chains remain in distinct regions, inflating between-chain variation (R-hat = `r round(rhat_bad, 2)`)."}
+ggplot(trace_data, aes(iteration, draw, colour = chain)) +
+  geom_line(linewidth = 0.25, alpha = 0.75) +
+  facet_wrap(~ example, ncol = 1) +
+  scale_colour_brewer(palette = "Dark2") +
+  labs(
+    title = "Do all chains explore the same region?",
+    x = "post-warmup iteration",
+    y = "simulated parameter draw",
+    colour = "chain"
+  ) +
+  theme_primer
+```
+
+With the fixed seed used here, the modern diagnostic is `r round(rhat_good, 2)` for the overlapping chains and `r round(rhat_bad, 2)` for the separated chains. The lower panel is deliberately extreme: real failures can be subtler, including slow exploration of a funnel, strong posterior correlations, or a chain that has not reached the typical set. When $\widehat R$ is high, do not solve it by reporting more digits or pooling the chains. Inspect trace plots, divergences, effective sample sizes, parameterization, and priors; then refit after addressing the cause.
+
+## Effective sample size (ESS)
+
+The number of saved draws is not the number of independent pieces of information. Successive MCMC draws are correlated, so an effective sample size (ESS) translates $MN$ nominal draws into the approximate number of independent draws that would give similar Monte Carlo precision. If $\rho_t$ is the lag-$t$ autocorrelation, the basic intuition is
+
+$$
+N_{\mathrm{eff}}
+\approx
+\frac{MN}{1 + 2\sum_{t=1}^{\infty}\rho_t}.
+$$
+
+Positive autocorrelation increases the denominator and lowers ESS. Consequently, Monte Carlo uncertainty for a posterior mean is approximately $\operatorname{sd}(\theta \mid y)/\sqrt{N_{\mathrm{eff}}}$, not $\operatorname{sd}(\theta \mid y)/\sqrt{MN}$. The `posterior` package reports robust rank-normalized estimates: `ess_bulk` describes precision in the center of the posterior and `ess_tail` describes precision for tail probabilities and quantiles. Check both after confirming that $\widehat R$ is near one; more iterations can improve ESS, but they do not repair chains that have not converged.
+
+```{r ess-example-data, include=FALSE}
+# Equal draw counts, but very different autocorrelation and therefore ESS.
+n_ess_iterations <- 400
+efficient_chains <- matrix(
+  rnorm(n_ess_iterations * n_chains),
+  nrow = n_ess_iterations,
+  ncol = n_chains
+)
+colnames(efficient_chains) <- paste0("chain_", seq_len(n_chains))
+
+autocorrelated_chains <- matrix(
+  NA_real_,
+  nrow = n_ess_iterations,
+  ncol = n_chains
+)
+for (chain in seq_len(n_chains)) {
+  autocorrelated_chains[1, chain] <- rnorm(1)
+  for (iteration in 2:n_ess_iterations) {
+    autocorrelated_chains[iteration, chain] <-
+      0.97 * autocorrelated_chains[iteration - 1, chain] +
+      rnorm(1, sd = sqrt(1 - 0.97^2))
+  }
+}
+colnames(autocorrelated_chains) <- paste0("chain_", seq_len(n_chains))
+
+ess_efficient <- posterior::ess_bulk(efficient_chains)
+ess_autocorrelated <- posterior::ess_bulk(autocorrelated_chains)
+
+ess_trace_data <- bind_rows(
+  as.data.frame(efficient_chains) |>
+    mutate(iteration = seq_len(n_ess_iterations)) |>
+    pivot_longer(-iteration, names_to = "chain", values_to = "draw") |>
+    mutate(example = "Low autocorrelation"),
+  as.data.frame(autocorrelated_chains) |>
+    mutate(iteration = seq_len(n_ess_iterations)) |>
+    pivot_longer(-iteration, names_to = "chain", values_to = "draw") |>
+    mutate(example = "High autocorrelation")
+) |>
+  mutate(chain = factor(chain))
+```
+
+```{r ess-example, echo=FALSE, fig.height=4.8, fig.cap="Four chains with the same 1,600 nominal draws. The quickly changing traces have bulk ESS = `r round(ess_efficient)`, whereas strongly autocorrelated traces have bulk ESS = `r round(ess_autocorrelated)`. These are simulated draws, not model fits."}
+ggplot(ess_trace_data, aes(iteration, draw, colour = chain)) +
+  geom_line(linewidth = 0.25, alpha = 0.75) +
+  facet_wrap(~ example, ncol = 1) +
+  scale_colour_brewer(palette = "Dark2") +
+  labs(
+    title = "Equal draws can carry unequal information",
+    x = "post-warmup iteration",
+    y = "simulated parameter draw",
+    colour = "chain"
+  ) +
+  theme_primer
+```
+
+## Centered and non-centered parameterizations
+
+For the varying-intercept model, a centered parameterization samples each group intercept directly:
+
+$$
+\begin{aligned}
+y_{ij} &\sim \operatorname{Normal}(\alpha_j, \sigma), \\
+\alpha_j &\sim \operatorname{Normal}(\mu_\alpha, \tau).
+\end{aligned}
+$$
+
+The equivalent non-centered parameterization samples a standardized group deviation and then constructs the intercept:
+
+$$
+\begin{aligned}
+z_j &\sim \operatorname{Normal}(0, 1), \\
+\alpha_j &= \mu_\alpha + \tau z_j, \\
+y_{ij} &\sim \operatorname{Normal}(\alpha_j, \sigma).
+\end{aligned}
+$$
+
+These are the same probability model and imply the same prior $\alpha_j \sim \operatorname{Normal}(\mu_\alpha, \tau)$; non-centering is a reparameterization, not a different prior. It changes the geometry seen by the sampler. With sparse groups or weak information about $\tau$, the centered form can create a narrow funnel: when $\tau$ is small, all $\alpha_j$ must lie in a very narrow region. The non-centered form often explores that geometry more efficiently, yielding fewer divergences, lower $\widehat R$, and higher ESS. When each group has abundant, informative data, the centered form can instead be more efficient because the data identify each $\alpha_j$ directly.
+
+`brms` ordinarily uses a non-centered construction for group-level effects. It is therefore a sensible default for the uneven or thin groups emphasized in this class. Use `make_stancode()` to inspect the generated Stan program if needed. Do not compare centered and non-centered versions with LOO: their statistical model is identical. Compare sampler diagnostics, divergences, ESS, and runtime; if neither works well, reconsider the likelihood, priors, scaling, or a partially non-centered parameterization.
+
+For an actual `brms` fit, summarize the diagnostic alongside effective sample size:
+
+```{r rhat-brms-workflow, eval=FALSE}
+posterior::summarise_draws(
+  posterior::as_draws_array(m_county),
+  posterior::rhat,
+  posterior::ess_bulk,
+  posterior::ess_tail,
+  posterior::mcse_mean
+) |>
+  arrange(desc(rhat)) |>
+  slice_head(n = 10)
+```
+
+# Appendix D. Extensions
+
+Two natural extensions are intentionally deferred:
+
+- **Varying slopes:** `y ~ x + (x | group)` allows the effect of $x$ to differ across groups.
+- **Non-Gaussian outcomes:** counts may require Poisson or negative-binomial likelihoods; ordinal and survival outcomes require their own likelihoods and links.
+
+Both retain the same hierarchical logic. They are easier to learn after the pooling structure, prediction for new groups, and posterior-draw workflow are secure.
+
+# Appendix E. Further reading
+
+- Gelman, A. (2006). [Prior distributions for variance parameters in hierarchical models](https://sites.stat.columbia.edu/gelman/bayescomputation/Gelman2006.pdf).
+- Simpson, D., Rue, H., Riebler, A., Martins, T. G., and Sørbye, S. H. (2017). [Penalising model component complexity](https://projecteuclid.org/journals/statistical-science/volume-32/issue-1/Penalising-Model-Component-Complexity--A-Principled-Practical-Approach-to/10.1214/16-STS576.full).
+- Vehtari, A., Gelman, A., and Gabry, J. (2017). [Practical Bayesian model evaluation using leave-one-out cross-validation and WAIC](https://arxiv.org/abs/1507.04544).
+- Stan Development Team. [Prior choice recommendations](https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations).
+- Bürkner, P.-C. [Prior definitions for brms models](https://paulbuerkner.com/brms/reference/set_prior.html).
